@@ -160,7 +160,6 @@ var Rules = (function () {
     var entries = options.entries || Entries.all();
     var exclude = U.toSet(draft.excludeIds || []);
     var counted = Config.isCounted(draft.category);
-    var staffView = user.role !== 'STUDENT';
     var byId = {};
     entries.forEach(function (e) { byId[e.id] = e; });
 
@@ -192,6 +191,8 @@ var Rules = (function () {
       var sec = r.sectionId ? Dir.section(r.sectionId) : null;
       var grades = sec ? sec.grades : (r.grade ? [r.grade] : []);
       var label = targetLabel(r);
+      // Student emails go only to SLT and to the class's own teachers.
+      var mayNameStudents = isSlt(user) || (!!sec && sec.teachers.indexOf(user.email) >= 0);
 
       // 1. Who may book what
       if (r.sectionId && !sec) {
@@ -314,7 +315,7 @@ var Rules = (function () {
             s.enforcement === 'WARN' ? { needsReason: true } : null));
           out.affected = {
             count: n,
-            emails: staffView ? affected.map(function (sid) {
+            emails: mayNameStudents ? affected.map(function (sid) {
               var st = Dir.student(sid);
               return st && st.email ? st.email : sid;
             }).sort() : []

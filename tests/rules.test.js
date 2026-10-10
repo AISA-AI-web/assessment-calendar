@@ -165,3 +165,15 @@ test('WARN mode lets anyone save past the limit with a reason', () => {
   assert.equal(ev.verdict, 'WARN');
   assert.equal(ev.needsReason, true);
 });
+
+test('student emails go only to SLT and the class\'s own teachers', () => {
+  const t = fresh();
+  const row = { sectionId: sid(t, 'G09BIO'), date: '2026-10-27', periods: [] };
+  const own = evaluate(t, t.fx.people.teacher, { rows: [row] });
+  assert.equal(own.rows[0].affected.emails.length, 18);
+  const slt = evaluate(t, t.fx.people.slt, { rows: [row] });
+  assert.equal(slt.rows[0].affected.emails.length, 18);
+  const other = evaluate(t, t.fx.people.historyTeacher, { rows: [row] });
+  assert.equal(other.rows[0].affected.count, 18);
+  assert.deepEqual(other.rows[0].affected.emails, []);
+});

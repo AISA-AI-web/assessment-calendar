@@ -1,0 +1,1589 @@
+<script>
+/* ============================================================================
+   AISA Assessment Calendar: the browser app.
+
+   Rules this file keeps:
+   1. The browser never decides policy. Load, blocks and warnings come from the
+      server (Rules.gs); this file only shows them.
+   2. Filters never change the load meters: a teacher who filters to one
+      subject must still see the day's true load.
+   3. Calendar dates are 'yyyy-mm-dd' strings. Never new Date('2026-10-05').
+   4. Server data reaches the page only through textContent, never innerHTML:
+      titles and notes are typed by people.
+   5. google.script.run is touched in exactly one place: call().
+   ========================================================================== */
+(function () {
+  'use strict';
+
+  /* ------------------------------------------------------------------
+     0. Helpers
+     ------------------------------------------------------------------ */
+
+  var DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  var DOW_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var MON_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
+    'September', 'October', 'November', 'December'];
+
+  var D = {
+    pad: function (n) { return (n < 10 ? '0' : '') + n; },
+    toDate: function (s) { return new Date(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)); },
+    from: function (d) { return d.getFullYear() + '-' + D.pad(d.getMonth() + 1) + '-' + D.pad(d.getDate()); },
+    add: function (s, n) { var d = D.toDate(s); d.setDate(d.getDate() + n); return D.from(d); },
+    addMonths: function (s, n) { var d = D.toDate(s.slice(0, 8) + '01'); d.setMonth(d.getMonth() + n); return D.from(d); },
+    dow: function (s) { var j = D.toDate(s).getDay(); return j === 0 ? 7 : j; },
+    weekStart: function (s) { return D.add(s, 1 - D.dow(s)); },
+    monthStart: function (s) { return s.slice(0, 8) + '01'; },
+    monthEnd: function (s) { var d = D.toDate(D.monthStart(s)); d.setMonth(d.getMonth() + 1); d.setDate(0); return D.from(d); },
+    range: function (a, b) { var out = []; var c = a; while (c <= b && out.length < 400) { out.push(c); c = D.add(c, 1); } return out; },
+    human: function (s) { return DOW[D.dow(s) - 1] + ' ' + (+s.slice(8, 10)) + ' ' + MON[+s.slice(5, 7) - 1]; },
+    long: function (s) { return DOW_LONG[D.dow(s) - 1] + ' ' + (+s.slice(8, 10)) + ' ' + MON_LONG[+s.slice(5, 7) - 1]; },
+    month: function (s) { return MON_LONG[+s.slice(5, 7) - 1] + ' ' + s.slice(0, 4); },
+    clock: function (t) { if (!t) return ''; var h = +t.slice(0, 2); return (h > 12 ? h - 12 : h) + ':' + t.slice(3, 5); },
+    valid: function (s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && D.from(D.toDate(s)) === s; }
+  };
+
+  function $(id) { return document.getElementById(id); }
+
+  function append(el, kids) {
+    if (kids === null || kids === undefined || kids === false || kids === '') return;
+    if (Array.isArray(kids)) { kids.forEach(function (k) { append(el, k); }); return; }
+    el.appendChild(typeof kids === 'string' || typeof kids === 'number' ? document.createTextNode(String(kids)) : kids);
+  }
+
+  /** h('button', { class: 'btn', text: 'Save', onclick: fn }, [children]) */
+  function h(tag, attrs, kids) {
+    var el = document.createElement(tag);
+    if (attrs) {
+      Object.keys(attrs).forEach(function (k) {
+        var v = attrs[k];
+        if (v === null || v === undefined || v === false) return;
+        if (k === 'class') el.className = v;
+        else if (k === 'text') el.textContent = v;
+        else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v);
+        else if (k === 'value') el.value = v;
+        else if (k === 'checked') el.checked = !!v;
+        else if (k === 'disabled') el.disabled = !!v;
+        else if (k === 'hidden') el.hidden = true;
+        else el.setAttribute(k, v === true ? '' : String(v));
+      });
+    }
+    append(el, kids);
+    return el;
+  }
+
+  function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); return el; }
+
+  function plural(n, word, many) { return n + ' ' + (n === 1 ? word : (many || word + 's')); }
+
+  function announce(msg) {
+    var live = $('live');
+    live.textContent = '';
+    window.setTimeout(function () { live.textContent = msg; }, 30);
+  }
+
+  function toast(msg, tone) {
+    var t = h('div', { class: 'toast' + (tone ? ' toast--' + tone : ''), role: 'status' }, msg);
+    $('toasts').appendChild(t);
+    window.setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 5200);
+  }
+
+  function store(key, value) {
+    try {
+      if (value === undefined) return JSON.parse(window.localStorage.getItem('ac:' + key) || 'null');
+      window.localStorage.setItem('ac:' + key, JSON.stringify(value));
+    } catch (e) { return null; }
+    return null;
+  }
+
+  /* ------------------------------------------------------------------
+     1. The server
+     ------------------------------------------------------------------ */
+
+  function failure(code, message) { return { ok: false, error: { code: code, message: message } }; }
+
+  function call(name, arg) {
+    return new Promise(function (resolve) {
+      var run = window.google && window.google.script && window.google.script.run;
+      if (run) {
+        var runner = run.withSuccessHandler(function (res) {
+          resolve(res || failure('EMPTY', 'The server sent nothing back. Please try again.'));
+        }).withFailureHandler(function () {
+          resolve(failure('NETWORK', 'Could not reach the server. Check your connection and try again.'));
+        });
+        if (arg === undefined) runner[name](); else runner[name](arg);
+      } else if (window.__PREVIEW_SERVER__) {
+        window.__PREVIEW_SERVER__(name, arg).then(resolve, function () {
+          resolve(failure('NETWORK', 'The preview server failed.'));
+        });
+      } else {
+        resolve(failure('NO_SERVER', 'This page is not connected to the calendar server.'));
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------------
+     2. State
+     ------------------------------------------------------------------ */
+
+  var S = {
+    boot: null,
+    view: 'month',
+    date: '',
+    scope: 'all',
+    narrow: false,
+    filters: { SUMMATIVE: true, EXAM: true, FORMATIVE: true, dept: '', q: '' },
+    cache: {},
+    current: null,
+    byDate: {},
+    loading: '',
+    error: null,
+    sections: {},
+    cats: {}
+  };
+
+  var CTX_ORDER = { NO_ASSESSMENTS: 0, EXAM_WINDOW: 1, TESTING: 2, CAUTION: 3, DEADLINE: 4, EVENT: 5 };
+  var CTX_ICON = { NO_ASSESSMENTS: '⊘', EXAM_WINDOW: '✎', TESTING: '◆', CAUTION: '▲', DEADLINE: '◷', EVENT: '•' };
+  var CAT_ORDER = { EXAM: 0, SUMMATIVE: 1, FORMATIVE: 2 };
+
+  function user() { return S.boot.user; }
+  function isSlt() { return user().role === 'SLT' || user().role === 'ADMIN'; }
+  function cap() { return S.boot.settings.maxPerDay; }
+
+  function dayInfo(ymd) { return S.boot.calendar.days[ymd] || null; }
+
+  function bellsOn(ymd) {
+    var d = dayInfo(ymd);
+    return d && d.b ? (S.boot.calendar.bells[d.b] || []) : [];
+  }
+
+  function scopeGrades() {
+    if (S.scope.indexOf('grade:') === 0) return [S.scope.slice(6)];
+    if (S.scope.indexOf('section:') === 0) {
+      var sec = S.sections[S.scope.slice(8)];
+      return sec ? sec.grades : null;
+    }
+    if (S.scope === 'me' && user().grade) return [user().grade];
+    return null;
+  }
+
+  /** Internal Calendar events on a day that concern the current scope. */
+  function eventsOn(ymd) {
+    var d = dayInfo(ymd);
+    if (!d) return [];
+    var grades = scopeGrades();
+    return d.e.map(function (i) { return S.boot.calendar.events[i]; }).filter(function (ev) {
+      return !ev.grades || !grades || grades.some(function (g) { return ev.grades.indexOf(g) >= 0; });
+    }).sort(function (a, b) { return CTX_ORDER[a.category] - CTX_ORDER[b.category]; });
+  }
+
+  /** The next n lessons of a section, from a date: [{ date, rotation, periods }]. */
+  function nextLessons(sec, from, n) {
+    var out = [];
+    if (!sec || !sec.meetings || !sec.meetings.length) return out;
+    var end = S.boot.settings.yearEnd;
+    var d = from;
+    var guard = 0;
+    while (d <= end && out.length < n && guard++ < 120) {
+      var info = dayInfo(d);
+      if (info && info.s === 'SCHOOL' && info.r && (!sec.termStart || (d >= sec.termStart && d <= sec.termEnd))) {
+        var valid = bellsOn(d).map(function (p) { return p.p; });
+        var ps = sec.meetings.filter(function (m) { return m.day === info.r && valid.indexOf(m.period) >= 0; })
+          .map(function (m) { return m.period; });
+        if (ps.length) out.push({ date: d, rotation: info.r, periods: ps });
+      }
+      d = D.add(d, 1);
+    }
+    return out;
+  }
+
+  function meetingPeriodsOn(sec, ymd) {
+    var info = dayInfo(ymd);
+    if (!sec || !info || !info.r || !sec.meetings) return [];
+    return sec.meetings.filter(function (m) { return m.day === info.r; }).map(function (m) { return m.period; });
+  }
+
+  function periodText(periods) {
+    if (!periods || !periods.length) return 'All day';
+    return 'P' + periods.join(', P');
+  }
+
+  function timesFor(ymd, periods) {
+    var bells = bellsOn(ymd).filter(function (p) { return periods.indexOf(p.p) >= 0; });
+    if (!bells.length) return '';
+    return D.clock(bells[0].start) + '–' + D.clock(bells[bells.length - 1].end);
+  }
+
+  /* ------------------------------------------------------------------
+     3. Data for the visible range
+     ------------------------------------------------------------------ */
+
+  function rangeFor(view, date) {
+    if (view === 'week') {
+      var ws = D.weekStart(date);
+      return { start: ws, end: D.add(ws, 4) };
+    }
+    return { start: D.weekStart(D.monthStart(date)), end: D.add(D.weekStart(D.monthEnd(date)), 4) };
+  }
+
+  function rangeKey() {
+    var r = rangeFor(S.view, S.date);
+    return S.scope + '|' + r.start + '|' + r.end;
+  }
+
+  function setCurrent(data, key) {
+    S.current = data;
+    S.currentKey = key || '';
+    S.byDate = {};
+    (data ? data.entries : []).forEach(function (e) { (S.byDate[e.date] = S.byDate[e.date] || []).push(e); });
+    Object.keys(S.byDate).forEach(function (d) {
+      S.byDate[d].sort(function (a, b) {
+        return CAT_ORDER[a.category] - CAT_ORDER[b.category] ||
+          ((+a.periods[0] || 99) - (+b.periods[0] || 99)) ||
+          (a.title < b.title ? -1 : a.title > b.title ? 1 : 0);
+      });
+    });
+  }
+
+  function fetchRange() {
+    var k = rangeKey();
+    if (S.cache[k]) {
+      setCurrent(S.cache[k], k);
+      S.error = null;
+      renderView();
+      return Promise.resolve();
+    }
+    var r = rangeFor(S.view, S.date);
+    S.loading = k;
+    renderProgress();
+    $('view').setAttribute('aria-busy', 'true');
+    $('view').classList.add('is-loading');
+    return call('apiGetRange', { start: r.start, end: r.end, scope: S.scope }).then(function (res) {
+      if (S.loading !== k) return;
+      S.loading = '';
+      renderProgress();
+      $('view').setAttribute('aria-busy', 'false');
+      $('view').classList.remove('is-loading');
+      if (!res.ok) {
+        S.error = res.error;
+        renderBanners();
+        return;
+      }
+      S.error = null;
+      S.cache[k] = res.data;
+      setCurrent(res.data, k);
+      renderBanners();
+      renderView();
+    });
+  }
+
+  function refresh() {
+    S.cache = {};
+    return fetchRange();
+  }
+
+  function passes(e) {
+    if (!S.filters[e.category]) return false;
+    if (S.filters.dept && e.department !== S.filters.dept) return false;
+    if (S.filters.q) {
+      var q = S.filters.q.toLowerCase();
+      return (e.title + ' ' + e.label + ' ' + (e.teacherName || '') + ' ' + (e.courseNumber || '')).toLowerCase().indexOf(q) >= 0;
+    }
+    return true;
+  }
+
+  function entriesOn(ymd) { return (S.byDate[ymd] || []).filter(passes); }
+
+  function loadOn(ymd) {
+    return S.current && S.current.load && S.current.load.days ? S.current.load.days[ymd] || null : null;
+  }
+
+  function filtersActive() {
+    var f = S.filters;
+    return !f.SUMMATIVE || !f.EXAM || !f.FORMATIVE || !!f.dept || !!f.q;
+  }
+
+  /* ------------------------------------------------------------------
+     4. Small components
+     ------------------------------------------------------------------ */
+
+  function catInfo(code) { return S.cats[code] || { label: code, short: code.slice(0, 3) }; }
+
+  function meter(ld) {
+    if (!ld || !ld.max) return null;
+    var c = cap();
+    var level = ld.max > c ? 'over' : ld.max === c ? 'full' : 'light';
+    var segs = [];
+    for (var i = 0; i < Math.max(c, ld.max); i++) segs.push(h('span', { class: 'meter__seg' + (i < ld.max ? ' on' : '') }));
+    var words = 'Busiest student: ' + ld.max + ' of ' + c + ' summatives';
+    if (ld.over) words += '. ' + plural(ld.over, 'student') + ' over the limit';
+    else if (ld.at) words += '. ' + plural(ld.at, 'student') + ' at the limit';
+    return h('span', { class: 'meter', 'data-level': level, role: 'img', 'aria-label': words, title: words }, [
+      h('span', { class: 'meter__bar', 'aria-hidden': 'true' }, segs),
+      h('span', { 'aria-hidden': 'true', text: ld.max + '/' + c })
+    ]);
+  }
+
+  function chipText(e) { return e.courseName + ' – ' + e.title; }
+
+  function chip(e, opts) {
+    opts = opts || {};
+    var c = catInfo(e.category);
+    var flag = e.status === 'PENDING' ? 'Pending' : e.status === 'DECLINED' ? 'Declined' :
+      (user().isStaff && !e.announced ? '○' : '');
+    var words = c.label + ': ' + chipText(e) + (opts.withPeriods ? ', ' + periodText(e.periods) : '') +
+      (e.status === 'PENDING' ? ' (waiting for SLT approval)' : '') +
+      (e.status === 'DECLINED' ? ' (declined)' : '') +
+      (user().isStaff && !e.announced && e.status === 'ACTIVE' ? ' (not yet announced to students)' : '');
+    return h('button', {
+      class: 'chip', type: 'button', 'data-cat': e.category,
+      'data-status': e.status === 'ACTIVE' ? null : e.status,
+      'data-unannounced': user().isStaff && !e.announced ? 'true' : null,
+      title: words, 'aria-label': words,
+      onclick: function (ev) { ev.stopPropagation(); openEntry(e, ev.currentTarget); }
+    }, [
+      h('span', { class: 'chip__code', text: c.short }),
+      h('span', { class: 'chip__text', text: (opts.withPeriods && e.periods.length ? periodText(e.periods) + ' · ' : '') + chipText(e) }),
+      flag ? h('span', { class: 'chip__flag', text: flag }) : null
+    ]);
+  }
+
+  function ctxLine(ev, ymd) {
+    var label = S.boot.calendar.categories[ev.category] || '';
+    var when = !ev.allDay && ev.periods && ev.periods.length ? periodText(ev.periods) + ' ' : '';
+    return h('div', { class: 'ctx', 'data-cat': ev.category, title: label + ': ' + ev.title }, [
+      h('span', { class: 'ctx__icon', 'aria-hidden': 'true', text: CTX_ICON[ev.category] || '•' }),
+      h('span', { class: 'ctx__text' }, [h('span', { class: 'visually-hidden', text: label + ': ' }), when + ev.title])
+    ]);
+  }
+
+  function rotBadge(info) {
+    if (!info || !info.r) return null;
+    return h('span', { class: 'rot', title: 'Rotation day ' + info.r, 'aria-label': 'Day ' + info.r, text: 'D' + info.r });
+  }
+
+  function canBookOn(ymd) {
+    var info = dayInfo(ymd);
+    return user().canBook && info && info.s !== 'CLOSED';
+  }
+
+  /* ------------------------------------------------------------------
+     5. Rendering
+     ------------------------------------------------------------------ */
+
+  function renderAll() {
+    renderHeader();
+    renderBanners();
+    renderScope();
+    renderToolbar();
+    renderLegend();
+    renderView();
+    renderFooter();
+  }
+
+  function renderHeader() {
+    var b = S.boot;
+    var title = document.querySelector('.header__title');
+    clear(title);
+    append(title, [b.settings.appTitle, b.settings.divisionLabel ? h('small', { text: b.settings.divisionLabel }) : null]);
+    document.title = b.settings.appTitle;
+    var right = clear($('header-right'));
+    if (isSlt()) {
+      right.appendChild(h('button', { class: 'btn', type: 'button', onclick: function (ev) { openRequests(ev.currentTarget); } },
+        ['Requests', b.counts.pending ? h('span', { class: 'count', text: b.counts.pending, 'aria-label': b.counts.pending + ' waiting' }) : null]));
+    }
+    if (user().isStaff && b.counts.imports) {
+      right.appendChild(h('button', { class: 'btn', type: 'button', onclick: function (ev) { openImports(ev.currentTarget); } },
+        ['From the old calendars', h('span', { class: 'count', text: b.counts.imports })]));
+    }
+    right.appendChild(h('button', { class: 'btn', type: 'button', onclick: function () { window.print(); } }, 'Print'));
+    var role = { ADMIN: 'Admin', SLT: 'SLT', TEACHER: 'Teacher', VIEWER: 'Staff', STUDENT: 'Student' }[user().role] || user().role;
+    right.appendChild(h('div', { class: 'who' }, [
+      h('b', { text: user().name || user().email }),
+      h('span', { class: 'who__email', text: user().email }),
+      h('span', { class: 'role', text: role })
+    ]));
+  }
+
+  function renderBanners() {
+    var box = clear($('banners'));
+    var b = S.boot;
+    if (S.error) {
+      box.appendChild(h('div', { class: 'banner banner--alert', role: 'alert' }, [
+        h('b', { text: S.error.message + ' ' }),
+        h('button', { class: 'btn btn--small', type: 'button', onclick: refresh }, 'Try again')
+      ]));
+    }
+    if (b.warnings && b.warnings.length) {
+      box.appendChild(h('div', { class: 'banner banner--warn' }, [
+        h('b', { text: 'Set-up still needed' }),
+        h('ul', null, b.warnings.map(function (w) { return h('li', { text: w }); }))
+      ]));
+    }
+    if (user().isStaff && !b.sections.length) {
+      box.appendChild(h('div', { class: 'banner' }, 'Classes appear here once the PowerSchool export has been imported.'));
+    }
+  }
+
+  function setScope(scope) {
+    S.scope = scope;
+    store('scope:' + user().email, scope);
+    syncUrl();
+    renderScope();
+    fetchRange();
+  }
+
+  function renderScope() {
+    var bar = clear($('scopebar'));
+    if (!user().isStaff) {
+      bar.appendChild(h('div', { class: 'scope-row' }, [
+        h('span', { class: 'scope-me', text: 'My assessments' }),
+        h('span', { class: 'muted', text: ' · Grade ' + user().grade + ' · only assessments your teachers have announced' })
+      ]));
+      return;
+    }
+    var grades = S.boot.settings.grades;
+    var curGrade = S.scope.indexOf('grade:') === 0 ? S.scope.slice(6) :
+      S.scope.indexOf('section:') === 0 && S.sections[S.scope.slice(8)] ? S.sections[S.scope.slice(8)].grades[0] : '';
+    var row = h('div', { class: 'scope-row', role: 'group', 'aria-label': 'Grade' }, [h('span', { class: 'scope-label', text: 'Grade' })]);
+    row.appendChild(h('button', {
+      class: 'pill', type: 'button', 'aria-pressed': S.scope === 'all' ? 'true' : 'false',
+      onclick: function () { setScope('all'); }
+    }, 'All'));
+    grades.forEach(function (g) {
+      row.appendChild(h('button', {
+        class: 'pill', type: 'button', 'aria-pressed': curGrade === g ? 'true' : 'false',
+        'aria-label': 'Grade ' + g, onclick: function () { setScope('grade:' + g); }
+      }, g));
+    });
+    bar.appendChild(row);
+
+    if (curGrade) {
+      var inGrade = S.boot.sections.filter(function (s) { return s.grades.indexOf(curGrade) >= 0; });
+      var sel = h('select', {
+        class: 'select', 'aria-label': 'Class in Grade ' + curGrade,
+        onchange: function (ev) { setScope(ev.target.value); }
+      }, [h('option', { value: 'grade:' + curGrade, text: 'Whole grade' })].concat(inGrade.map(function (s) {
+        return h('option', { value: 'section:' + s.id, text: s.label + (s.mine ? '  (yours)' : '') });
+      })));
+      sel.value = S.scope;
+      bar.appendChild(h('div', { class: 'scope-row' }, [h('span', { class: 'scope-label', text: 'Class' }), sel,
+        S.scope.indexOf('section:') === 0
+          ? h('span', { class: 'muted', text: 'Shows everything the students in this class have, in every subject.' })
+          : null]));
+    }
+
+    var mine = S.boot.sections.filter(function (s) { return s.mine; });
+    if (mine.length) {
+      var my = h('div', { class: 'scope-row', role: 'group', 'aria-label': 'My classes' }, [h('span', { class: 'scope-label', text: 'My classes' })]);
+      mine.forEach(function (s) {
+        my.appendChild(h('button', {
+          class: 'pill pill--mine', type: 'button', 'aria-pressed': S.scope === 'section:' + s.id ? 'true' : 'false',
+          title: s.label, onclick: function () { setScope('section:' + s.id); }
+        }, s.courseName));
+      });
+      bar.appendChild(my);
+    }
+  }
+
+  function step(n) {
+    S.date = S.view === 'week' ? D.add(D.weekStart(S.date), 7 * n) : D.addMonths(S.date, n);
+    syncUrl();
+    renderToolbar();
+    fetchRange();
+    announce(periodLabel());
+  }
+
+  function periodLabel() {
+    if (S.view === 'week') {
+      var ws = D.weekStart(S.date);
+      var we = D.add(ws, 4);
+      var a = +ws.slice(8);
+      var b = +we.slice(8);
+      var ma = MON[+ws.slice(5, 7) - 1];
+      var mb = MON[+we.slice(5, 7) - 1];
+      return (ma === mb ? a + '–' + b + ' ' + mb : a + ' ' + ma + ' – ' + b + ' ' + mb) + ' ' + we.slice(0, 4);
+    }
+    return D.month(S.date);
+  }
+
+  function setView(v) {
+    S.view = v;
+    store('view:' + user().email, v);
+    syncUrl();
+    renderToolbar();
+    fetchRange();
+  }
+
+  function renderToolbar() {
+    var bar = clear($('toolbar'));
+    bar.appendChild(h('button', { class: 'btn btn--icon', type: 'button', 'aria-label': 'Previous ' + S.view, onclick: function () { step(-1); } }, '‹'));
+    bar.appendChild(h('button', {
+      class: 'btn', type: 'button',
+      onclick: function () { S.date = S.boot.today; syncUrl(); renderToolbar(); fetchRange(); }
+    }, 'Today'));
+    bar.appendChild(h('button', { class: 'btn btn--icon', type: 'button', 'aria-label': 'Next ' + S.view, onclick: function () { step(1); } }, '›'));
+    bar.appendChild(h('span', { class: 'toolbar__period', 'aria-live': 'polite', text: periodLabel() }));
+    bar.appendChild(h('div', { class: 'seg', role: 'group', 'aria-label': 'View' }, [
+      h('button', { type: 'button', 'aria-pressed': S.view === 'month' ? 'true' : 'false', onclick: function () { setView('month'); } }, 'Month'),
+      h('button', { type: 'button', 'aria-pressed': S.view === 'week' ? 'true' : 'false', onclick: function () { setView('week'); } }, 'Week')
+    ]));
+    bar.appendChild(h('span', { class: 'toolbar__spacer' }));
+
+    var f = h('div', { class: 'filters', role: 'group', 'aria-label': 'Filters' });
+    S.boot.categories.forEach(function (c) {
+      if (c.code === 'EXAM' && !isSlt() && !hasCategory('EXAM')) return;
+      f.appendChild(h('button', {
+        class: 'pill', type: 'button', 'aria-pressed': S.filters[c.code] ? 'true' : 'false',
+        onclick: function () { S.filters[c.code] = !S.filters[c.code]; renderToolbar(); renderView(); }
+      }, c.label + 's'));
+    });
+    var depts = {};
+    S.boot.sections.forEach(function (s) { if (s.department) depts[s.department] = true; });
+    var dlist = Object.keys(depts).sort();
+    if (dlist.length > 1) {
+      var sel = h('select', {
+        class: 'select', 'aria-label': 'Subject',
+        onchange: function (ev) { S.filters.dept = ev.target.value; renderView(); }
+      }, [h('option', { value: '', text: 'All subjects' })].concat(dlist.map(function (d) { return h('option', { value: d, text: d }); })));
+      sel.value = S.filters.dept;
+      f.appendChild(sel);
+    }
+    f.appendChild(h('input', {
+      class: 'input', type: 'search', placeholder: 'Search', 'aria-label': 'Search assessments', value: S.filters.q,
+      oninput: function (ev) { S.filters.q = ev.target.value.trim(); renderView(); }
+    }));
+    bar.appendChild(f);
+
+    if (user().canBook) {
+      bar.appendChild(h('button', {
+        class: 'btn btn--gold', type: 'button',
+        onclick: function (ev) { openBooking({ mode: 'create' }, ev.currentTarget); }
+      }, '+ Add assessment'));
+    }
+    var prog = $('progress-bar');
+    if (!prog) {
+      prog = h('div', { id: 'progress-bar', class: 'progress', 'aria-hidden': 'true' });
+      $('toolbar').parentNode.insertBefore(prog, $('legend'));
+    }
+    renderProgress();
+  }
+
+  function hasCategory(code) {
+    return !!(S.current && S.current.entries.some(function (e) { return e.category === code; }));
+  }
+
+  function renderProgress() {
+    var p = $('progress-bar');
+    if (!p) return;
+    clear(p);
+    if (S.loading) p.appendChild(h('span'));
+  }
+
+  function renderLegend() {
+    var box = clear($('legend'));
+    var c = cap();
+    var sample = function (max) { return meter({ max: max, at: 0, over: 0 }); };
+    append(box, [
+      h('span', null, [sample(c), ' busiest student at the limit (' + c + ' summatives a day)']),
+      h('span', null, [sample(c + 1), ' over the limit']),
+      user().isStaff ? h('span', { text: '○ not yet announced to students' }) : null,
+      user().isStaff ? h('span', { text: 'Dashed = waiting for SLT' }) : null,
+      h('span', { text: 'D3 = rotation day' })
+    ]);
+  }
+
+  function renderFooter() {
+    var b = S.boot;
+    var synced = b.calendar.syncedAt ? ' (synced ' + b.calendar.syncedAt.replace('T', ' ').slice(0, 16) + ')' : '';
+    var foot = clear($('footer'));
+    append(foot, [
+      'At most ' + cap() + ' summatives per student per day. Rotation days and school events come from the AISA Internal Calendar' + synced + '. ',
+      b.settings.supportEmail ? ['Questions: ', h('a', { href: 'mailto:' + b.settings.supportEmail, text: b.settings.supportEmail }), '.'] : null
+    ]);
+  }
+
+  function viewTitle() {
+    var t = clear($('view-title'));
+    var scopeLabel = S.current && S.current.scope ? S.current.scope.label : '';
+    append(t, [h('b', { text: scopeLabel || '…' }), ' · ' + periodLabel()]);
+    if (filtersActive()) append(t, ' · filtered');
+  }
+
+  function renderView() {
+    viewTitle();
+    var v = clear($('view'));
+    if (!S.current || S.currentKey !== rangeKey()) {
+      if (!S.current) {
+        v.appendChild(h('div', { class: 'empty' }, [h('b', { text: 'Loading the calendar…' })]));
+        return;
+      }
+      setCurrent({ scope: S.current.scope, entries: [], load: null }, S.currentKey);
+    }
+    if (S.narrow) renderAgenda(v);
+    else if (S.view === 'week') renderWeek(v);
+    else renderMonth(v);
+    if (S.current && !S.current.entries.length) {
+      v.appendChild(h('p', { class: 'muted', text: user().isStaff
+        ? 'Nothing booked for ' + S.current.scope.label + ' in this ' + S.view + ' yet. A blank day means nobody has booked anything, so check with colleagues if you are unsure.'
+        : 'No announced assessments in this ' + S.view + '.' }));
+    }
+  }
+
+  /* ---------- month ---------- */
+
+  function renderMonth(container) {
+    var r = rangeFor('month', S.date);
+    var ms = D.monthStart(S.date);
+    var me = D.monthEnd(S.date);
+    var grid = h('div', { class: 'month' });
+    DOW_LONG.slice(0, 5).forEach(function (d) { grid.appendChild(h('div', { class: 'month__dow', 'aria-hidden': 'true', text: d })); });
+    D.range(r.start, r.end).forEach(function (d) {
+      if (D.dow(d) > 5) return;
+      grid.appendChild(monthCell(d, d < ms || d > me));
+    });
+    container.appendChild(grid);
+  }
+
+  function dayStatusText(info) {
+    if (!info) return 'Outside the school year';
+    if (info.s === 'CLOSED') return info.l || 'No school';
+    if (info.s === 'UNLISTED') return 'No rotation day listed';
+    return '';
+  }
+
+  function monthCell(d, other) {
+    var info = dayInfo(d);
+    var closed = !info || info.s === 'CLOSED';
+    var shown = entriesOn(d);
+    var total = (S.byDate[d] || []).length;
+    var ld = loadOn(d);
+    var cls = 'cell' + (other ? ' cell--other' : '') + (closed ? ' cell--closed' : '') + (d === S.boot.today ? ' cell--today' : '');
+    var aria = D.long(d) + (info && info.r ? ', Day ' + info.r : '') + '. ' +
+      (closed ? dayStatusText(info) : plural(total, 'assessment')) + (ld ? ', busiest student ' + ld.max + ' of ' + cap() : '');
+    var cell = h('div', { class: cls, onclick: function () { if (!closed) openDay(d); } }, [
+      h('div', { class: 'cell__top' }, [
+        h('button', { class: 'cell__num', type: 'button', 'aria-label': aria, onclick: function (ev) { ev.stopPropagation(); openDay(d, ev.currentTarget); } }, String(+d.slice(8))),
+        rotBadge(info),
+        meter(ld)
+      ])
+    ]);
+    var status = dayStatusText(info);
+    if (status) cell.appendChild(h('div', { class: 'cell__status', text: status }));
+    if (!closed) {
+      var evs = eventsOn(d).filter(function (ev) { return ev.category !== 'CLOSED'; });
+      evs.slice(0, 2).forEach(function (ev) { cell.appendChild(ctxLine(ev, d)); });
+      var chips = h('div', { class: 'cell__chips' });
+      var limit = evs.length > 1 ? 2 : 3;
+      shown.slice(0, limit).forEach(function (e) { chips.appendChild(chip(e)); });
+      var hiddenCount = Math.max(0, shown.length - limit) + Math.max(0, evs.length - 2);
+      if (hiddenCount > 0) {
+        chips.appendChild(h('button', { class: 'more', type: 'button', onclick: function (ev) { ev.stopPropagation(); openDay(d, ev.currentTarget); } },
+          '+' + hiddenCount + ' more'));
+      }
+      cell.appendChild(chips);
+    }
+    return cell;
+  }
+
+  /* ---------- week ---------- */
+
+  function renderWeek(container) {
+    var ws = D.weekStart(S.date);
+    var days = [0, 1, 2, 3, 4].map(function (i) { return D.add(ws, i); });
+    var periods = [];
+    var rowTimes = {};
+    days.forEach(function (d) {
+      bellsOn(d).forEach(function (p) {
+        if (periods.indexOf(p.p) < 0) periods.push(p.p);
+        if (!rowTimes[p.p] && D.dow(d) < 5) rowTimes[p.p] = p;
+      });
+    });
+    days.forEach(function (d) { bellsOn(d).forEach(function (p) { if (!rowTimes[p.p]) rowTimes[p.p] = p; }); });
+    periods.sort(function (a, b) { return (+a || 0) - (+b || 0); });
+
+    var table = h('table', { class: 'week' });
+    var head = h('tr', null, [h('th', { class: 'week__corner', scope: 'col' }, h('span', { class: 'visually-hidden', text: 'Period' }))]);
+    days.forEach(function (d) {
+      var info = dayInfo(d);
+      head.appendChild(h('th', { scope: 'col' }, h('div', { class: 'week__day' }, [
+        h('button', { class: 'cell__num week__dayname', type: 'button', onclick: function (ev) { openDay(d, ev.currentTarget); } }, D.human(d)),
+        h('div', { class: 'cell__top' }, [rotBadge(info), meter(loadOn(d))]),
+        dayStatusText(info) ? h('span', { class: 'cell__status', text: dayStatusText(info) }) : null
+      ])));
+    });
+    table.appendChild(h('thead', null, head));
+    var body = h('tbody');
+
+    // Day notes: all-day events from the Internal Calendar
+    var notes = h('tr', { class: 'week__row' }, [h('th', { scope: 'row' }, ['Notes', h('small', { text: 'School calendar' })])]);
+    days.forEach(function (d) {
+      var info = dayInfo(d);
+      var td = h('td');
+      if (info && info.s !== 'CLOSED') {
+        eventsOn(d).filter(function (ev) { return ev.allDay || !ev.periods.length; }).forEach(function (ev) { td.appendChild(ctxLine(ev, d)); });
+      }
+      notes.appendChild(td);
+    });
+    body.appendChild(notes);
+
+    // All-day entries
+    var allDay = h('tr', { class: 'week__row' }, [h('th', { scope: 'row' }, ['All day', h('small', { text: 'No period set' })])]);
+    days.forEach(function (d) {
+      var info = dayInfo(d);
+      var closed = !info || info.s === 'CLOSED';
+      var td = h('td', { class: closed ? 'closed' : (canBookOn(d) ? 'slot' : '') });
+      if (closed) td.textContent = dayStatusText(info);
+      else {
+        var chips = h('div', { class: 'cell__chips' });
+        entriesOn(d).filter(function (e) { return !e.periods.length; }).forEach(function (e) { chips.appendChild(chip(e)); });
+        td.appendChild(chips);
+        if (canBookOn(d)) td.addEventListener('click', function (ev) { openBooking({ mode: 'create', date: d }, ev.currentTarget); });
+      }
+      allDay.appendChild(td);
+    });
+    body.appendChild(allDay);
+
+    periods.forEach(function (p) {
+      var rt = rowTimes[p];
+      var tr = h('tr', { class: 'week__row' }, [h('th', { scope: 'row' }, ['P' + p, h('small', { text: rt ? D.clock(rt.start) + '–' + D.clock(rt.end) : '' })])]);
+      days.forEach(function (d) {
+        var info = dayInfo(d);
+        var bell = bellsOn(d).filter(function (x) { return x.p === p; })[0];
+        if (!info || info.s === 'CLOSED') { tr.appendChild(h('td', { class: 'closed' })); return; }
+        if (!bell) { tr.appendChild(h('td', { class: 'none', title: 'No period ' + p + ' on ' + DOW_LONG[D.dow(d) - 1] + 's' })); return; }
+        var td = h('td', { class: canBookOn(d) ? 'slot' : '' });
+        if (rt && (bell.start !== rt.start || bell.end !== rt.end)) td.appendChild(h('span', { class: 'time', text: D.clock(bell.start) + '–' + D.clock(bell.end) }));
+        eventsOn(d).filter(function (ev) { return !ev.allDay && ev.periods.indexOf(p) >= 0; }).forEach(function (ev) { td.appendChild(ctxLine(ev, d)); });
+        var chips = h('div', { class: 'cell__chips' });
+        entriesOn(d).filter(function (e) { return e.periods.indexOf(p) >= 0; }).forEach(function (e) { chips.appendChild(chip(e)); });
+        td.appendChild(chips);
+        if (canBookOn(d)) {
+          td.setAttribute('title', 'Add an assessment on ' + D.human(d) + ', P' + p);
+          td.addEventListener('click', function (ev) { openBooking({ mode: 'create', date: d, period: p }, ev.currentTarget); });
+        }
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    table.appendChild(body);
+    container.appendChild(table);
+  }
+
+  /* ---------- agenda (phones) ---------- */
+
+  function renderAgenda(container) {
+    var r = S.view === 'week' ? rangeFor('week', S.date) : { start: D.monthStart(S.date), end: D.monthEnd(S.date) };
+    var list = h('div', { class: 'agenda' });
+    var closedRun = null;
+    function flush() {
+      if (!closedRun) return;
+      var label = closedRun.from === closedRun.to ? D.human(closedRun.from) : D.human(closedRun.from) + ' – ' + D.human(closedRun.to);
+      list.appendChild(h('div', { class: 'aday aday--closed' }, [h('span', { class: 'muted', text: label + ': ' + closedRun.label })]));
+      closedRun = null;
+    }
+    D.range(r.start, r.end).forEach(function (d) {
+      if (D.dow(d) > 5) return;
+      var info = dayInfo(d);
+      if (!info) return;
+      if (info.s === 'CLOSED') {
+        if (closedRun && closedRun.label === info.l) closedRun.to = d;
+        else { flush(); closedRun = { from: d, to: d, label: info.l || 'No school' }; }
+        return;
+      }
+      flush();
+      var shown = entriesOn(d);
+      var evs = eventsOn(d);
+      var box = h('div', { class: 'aday' + (d === S.boot.today ? ' aday--today' : '') }, [
+        h('div', { class: 'aday__head' }, [
+          h('button', { class: 'aday__date', type: 'button', onclick: function (ev) { openDay(d, ev.currentTarget); } }, D.human(d)),
+          rotBadge(info), meter(loadOn(d))
+        ])
+      ]);
+      if (info.s === 'UNLISTED') box.appendChild(h('div', { class: 'cell__status', text: 'No rotation day listed' }));
+      evs.forEach(function (ev) { box.appendChild(ctxLine(ev, d)); });
+      shown.forEach(function (e) { box.appendChild(chip(e, { withPeriods: true })); });
+      if (!shown.length && !evs.length) box.appendChild(h('span', { class: 'muted', text: 'Nothing booked' }));
+      list.appendChild(box);
+    });
+    flush();
+    container.appendChild(list);
+  }
+
+  /* ------------------------------------------------------------------
+     6. Drawers
+     ------------------------------------------------------------------ */
+
+  var layer = null;
+
+  function closeDrawer() {
+    if (!layer) return;
+    var l = layer;
+    layer = null;
+    clear($('drawer-host'));
+    $('backdrop').hidden = true;
+    document.removeEventListener('keydown', onKey, true);
+    if (l.opener && document.body.contains(l.opener)) l.opener.focus();
+  }
+
+  function onKey(ev) {
+    if (ev.key === 'Escape' && layer) {
+      ev.preventDefault();
+      closeDrawer();
+      return;
+    }
+    if (ev.key === 'Tab' && layer) {
+      var f = layer.el.querySelectorAll('button, [href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])');
+      var list = Array.prototype.filter.call(f, function (x) { return !x.disabled && x.offsetParent !== null; });
+      if (!list.length) return;
+      var first = list[0];
+      var last = list[list.length - 1];
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+    }
+  }
+
+  /** { eyebrow, title, wide } → { el, body, foot } */
+  function openDrawer(o, opener) {
+    if (layer) closeDrawer();
+    var id = 'drawer-title-' + Date.now();
+    var body = h('div', { class: 'drawer__body' });
+    var foot = h('div', { class: 'drawer__foot' });
+    var el = h('section', { class: 'drawer' + (o.wide ? ' drawer--wide' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': id }, [
+      h('div', { class: 'drawer__head' }, [
+        h('div', null, [o.eyebrow ? h('p', { class: 'eyebrow', text: o.eyebrow }) : null, h('h2', { class: 'drawer__title', id: id, text: o.title })]),
+        h('button', { class: 'btn btn--icon btn--ghost drawer__close', type: 'button', 'aria-label': 'Close', onclick: closeDrawer }, '×')
+      ]),
+      body, foot
+    ]);
+    $('drawer-host').appendChild(el);
+    var bd = $('backdrop');
+    bd.hidden = false;
+    bd.onclick = closeDrawer;
+    layer = { el: el, opener: opener || document.activeElement };
+    document.addEventListener('keydown', onKey, true);
+    window.setTimeout(function () {
+      var focusable = el.querySelector('input, select, textarea, .drawer__body button') || el.querySelector('.drawer__close');
+      if (focusable) focusable.focus();
+    }, 20);
+    return { el: el, body: body, foot: foot };
+  }
+
+  /* ---------- a day ---------- */
+
+  function openDay(d, opener) {
+    var info = dayInfo(d);
+    var dr = openDrawer({ eyebrow: info && info.r ? 'Day ' + info.r : 'School day', title: D.long(d) }, opener);
+    var ld = loadOn(d);
+    var scopeLabel = S.current ? S.current.scope.label : '';
+    if (info && info.s === 'CLOSED') dr.body.appendChild(h('div', { class: 'banner', text: 'No school: ' + (info.l || '') }));
+    if (info && info.s === 'UNLISTED') dr.body.appendChild(h('div', { class: 'banner banner--warn', text: 'The Internal Calendar has no rotation day for this date. It may be a holiday that has not been added yet.' }));
+
+    var loadCard = h('div', { class: 'card card--tint' }, [h('h3', { text: 'Load for ' + scopeLabel })]);
+    if (ld && ld.max) {
+      loadCard.appendChild(h('p', { style: 'margin:0' }, [meter(ld), ' ',
+        'The busiest student has ' + plural(ld.max, 'summative') + ' (limit ' + cap() + ').' +
+        (ld.over ? ' ' + plural(ld.over, 'student') + ' over the limit.' : ld.at ? ' ' + plural(ld.at, 'student') + ' at the limit.' : '')]));
+    } else {
+      loadCard.appendChild(h('p', { class: 'muted', style: 'margin:0', text: 'No summatives booked for these students.' }));
+    }
+    dr.body.appendChild(loadCard);
+
+    var evs = eventsOn(d);
+    if (evs.length) {
+      var ul = h('ul', { class: 'list' });
+      evs.forEach(function (ev) {
+        var when = !ev.allDay && ev.startTime ? D.clock(ev.startTime) + '–' + D.clock(ev.endTime) + (ev.periods.length ? ' (' + periodText(ev.periods) + ')' : '') + ' · ' : '';
+        ul.appendChild(h('li', null, [h('span', { class: 'tag' + (ev.category === 'NO_ASSESSMENTS' || ev.category === 'EXAM_WINDOW' ? ' tag--alert' : ev.category === 'TESTING' || ev.category === 'CAUTION' ? ' tag--warn' : ''), text: S.boot.calendar.categories[ev.category] }),
+          ' ', when + ev.title, ev.grades ? h('span', { class: 'muted', text: ' · Grade ' + ev.grades.join(', ') }) : null]));
+      });
+      dr.body.appendChild(h('div', null, [h('h3', { class: 'section-title', text: 'On the school calendar' }), ul]));
+    }
+
+    var all = S.byDate[d] || [];
+    var shown = all.filter(passes);
+    var list = h('div', { class: 'list' });
+    shown.forEach(function (e) {
+      list.appendChild(h('div', { class: 'card' }, [chip(e, { withPeriods: true }),
+        h('span', { class: 'muted', text: e.label + ' · ' + periodText(e.periods) + (e.teacherName ? ' · ' + e.teacherName : '') })]));
+    });
+    dr.body.appendChild(h('div', null, [
+      h('h3', { class: 'section-title', text: 'Assessments' + (all.length !== shown.length ? ' (' + shown.length + ' of ' + all.length + ' shown)' : '') }),
+      shown.length ? list : h('p', { class: 'muted', text: 'Nothing booked.' })
+    ]));
+
+    if (canBookOn(d)) {
+      dr.foot.appendChild(h('button', { class: 'btn btn--gold', type: 'button', onclick: function () { openBooking({ mode: 'create', date: d }); } }, '+ Add an assessment on this day'));
+    }
+  }
+
+  /* ---------- one entry ---------- */
+
+  function openEntry(e, opener) {
+    var c = catInfo(e.category);
+    var info = dayInfo(e.date);
+    var dr = openDrawer({ eyebrow: c.label, title: e.title }, opener);
+    var status = e.status === 'PENDING' ? h('span', { class: 'tag tag--warn', text: 'Waiting for SLT approval' }) :
+      e.status === 'DECLINED' ? h('span', { class: 'tag tag--alert', text: 'Declined by SLT' }) :
+      user().isStaff ? (e.announced ? h('span', { class: 'tag tag--ok', text: 'Announced to students' }) : h('span', { class: 'tag', text: 'Not yet announced to students' })) : null;
+    if (status) dr.body.appendChild(h('div', null, status));
+    var times = timesFor(e.date, e.periods);
+    var kv = h('dl', { class: 'kv' });
+    function row(k, v) { if (v) append(kv, [h('dt', { text: k }), h('dd', null, v)]); }
+    row('When', D.long(e.date) + (info && info.r ? ' · Day ' + info.r : ''));
+    row('Period', periodText(e.periods) + (times ? ' (' + times + ')' : ''));
+    row('Class', e.label);
+    row('Teacher', e.teacherName);
+    row('Type', c.label + (e.format ? ' · ' + e.format : ''));
+    if (user().isStaff) {
+      row('Notes', e.notes);
+      row('Request', e.requestReason);
+      row('Override', e.overrideReason ? e.overrideReason + (e.overrideBy && e.overrideBy !== 'import' ? ' (' + e.overrideBy + ')' : '') : '');
+      row('SLT note', e.decisionNote);
+      if (isSlt()) row('Grade calendar', e.mirrorStatus === 'OK' ? 'Copied' : e.mirrorStatus ? e.mirrorStatus : (e.status === 'ACTIVE' ? 'Not copied yet' : ''));
+    }
+    dr.body.appendChild(kv);
+
+    if (!user().isStaff) return;
+    var busy = false;
+    function act(fn) {
+      return function (ev) {
+        if (busy) return;
+        var btn = ev.currentTarget;
+        busy = true;
+        btn.disabled = true;
+        fn().then(function () {
+          busy = false;
+          btn.disabled = false;
+        });
+      };
+    }
+    if (e.canEdit) {
+      dr.foot.appendChild(h('button', { class: 'btn btn--danger', type: 'button', onclick: act(function () {
+        if (!window.confirm('Delete "' + e.title + '"? It is removed from the grade calendar too.')) return Promise.resolve();
+        return call('apiDelete', { id: e.id }).then(function (res) {
+          if (!res.ok) { toast(res.error.message); return; }
+          closeDrawer();
+          toast('Deleted.', 'ok');
+          refresh();
+        });
+      }) }, 'Delete'));
+      if (e.status === 'ACTIVE') {
+        dr.foot.appendChild(h('button', { class: 'btn', type: 'button', onclick: act(function () {
+          return call('apiUpdate', { id: e.id, patch: { announced: !e.announced } }).then(function (res) {
+            if (!res.ok) { toast(res.error.message); return; }
+            closeDrawer();
+            toast(res.data.entry.announced ? 'Marked as announced. Students can now see it.' : 'Hidden from students again.', 'ok');
+            refresh();
+          });
+        }) }, e.announced ? 'Hide from students' : 'Mark as announced'));
+      }
+      dr.foot.appendChild(h('button', { class: 'btn btn--primary', type: 'button', onclick: function () { openBooking({ mode: 'edit', entry: e }); } }, 'Edit'));
+    }
+    if (e.status === 'PENDING' && isSlt()) {
+      dr.foot.appendChild(h('button', { class: 'btn', type: 'button', onclick: function () { openRequests(); } }, 'Review in Requests'));
+    }
+  }
+
+  /* ---------- the booking form ---------- */
+
+  function openBooking(opts, opener) {
+    var u = user();
+    if (!u.canBook) return;
+    var mode = opts.mode || 'create';
+    var e = opts.entry || null;
+    var item = opts.item || null;
+    var B = {
+      mode: mode,
+      category: e ? e.category : (item && item.guessCategory) || 'SUMMATIVE',
+      title: e ? e.title : item ? item.title : '',
+      format: e ? e.format : '',
+      notes: e ? (e.notes || '') : '',
+      announced: e ? e.announced : false,
+      keys: [],
+      rows: {},
+      showAll: false,
+      search: '',
+      evaluation: null,
+      seq: 0,
+      timer: null,
+      reason: '',
+      error: '',
+      saving: false
+    };
+
+    var sectionsAll = S.boot.sections;
+    function sectionKey(s) { return 'section:' + s.id; }
+    function keyLabel(k) {
+      if (k.indexOf('grade:') === 0) return 'All of Grade ' + k.slice(6);
+      var s = S.sections[k.slice(8)];
+      return s ? s.label : k;
+    }
+    function rowFor(k, date, periods) {
+      B.rows[k] = { date: date || '', periods: periods || [] };
+    }
+
+    if (e) {
+      var k0 = e.sectionId ? 'section:' + e.sectionId : 'grade:' + e.grade;
+      B.keys = [k0];
+      rowFor(k0, e.date, e.periods.slice());
+    } else {
+      var pre = null;
+      if (S.scope.indexOf('section:') === 0 && (S.sections[S.scope.slice(8)] || {}).mine) pre = S.scope;
+      if (item) {
+        var cands = sectionsAll.filter(function (s) { return (s.mine || isSlt()) && s.grades.indexOf(item.grade) >= 0; });
+        var mineCands = cands.filter(function (s) { return s.mine; });
+        if (mineCands.length === 1) pre = sectionKey(mineCands[0]);
+      } else if (!pre) {
+        var g = scopeGrades();
+        var mine = sectionsAll.filter(function (s) { return s.mine && (!g || s.grades.some(function (x) { return g.indexOf(x) >= 0; })); });
+        if (mine.length === 1) pre = sectionKey(mine[0]);
+      }
+      if (pre) {
+        B.keys = [pre];
+        var date = item ? item.date : (opts.date || '');
+        var sec = S.sections[pre.slice(8)];
+        var ps = item ? item.periods.slice() : opts.period ? [opts.period] : (date ? meetingPeriodsOn(sec, date) : []);
+        rowFor(pre, date, ps);
+      }
+    }
+
+    var titleText = mode === 'edit' ? 'Edit assessment' : mode === 'claim' ? 'Add an old calendar entry' : 'Add an assessment';
+    var dr = openDrawer({ eyebrow: mode === 'claim' ? 'From the old grade calendar' : 'Booking', title: titleText, wide: true }, opener);
+    var body = dr.body;
+
+    if (mode === 'claim') {
+      body.appendChild(h('div', { class: 'banner' }, [
+        h('b', { text: item.title }), ' · ' + D.long(item.date) + (item.startTime ? ' · ' + D.clock(item.startTime) + '–' + D.clock(item.endTime) : '') +
+        ' · Grade ' + item.grade + (item.creatorName ? ' · added by ' + item.creatorName : ''),
+        h('br'), 'Pick the class or classes it was for. The old calendar event is replaced by the standard one. Entries brought in from the old calendars are saved even if they break the limit.'
+      ]));
+    }
+
+    // Category
+    var catRow = h('div', { class: 'seg', role: 'group', 'aria-label': 'Category' });
+    function renderCats() {
+      clear(catRow);
+      S.boot.categories.forEach(function (c) {
+        if (c.sltOnly && !isSlt() && B.category !== c.code) return;
+        catRow.appendChild(h('button', {
+          type: 'button', 'aria-pressed': B.category === c.code ? 'true' : 'false',
+          onclick: function () { B.category = c.code; renderCats(); renderClasses(); schedule(); }
+        }, c.label));
+      });
+    }
+    renderCats();
+    body.appendChild(h('div', { class: 'field' }, [h('span', { class: 'label', text: 'Category' }), catRow,
+      h('span', { class: 'hint', text: 'Summatives' + (isSlt() ? ' and exams' : '') + ' count toward the limit of ' + cap() + ' a day per student. Formatives are shown but never counted.' })]));
+
+    // Title and format
+    var titleInput = h('input', { class: 'input', id: 'f-title', maxlength: '120', value: B.title, required: true, oninput: function (ev) { B.title = ev.target.value; } });
+    body.appendChild(h('div', { class: 'field' }, [h('label', { for: 'f-title', text: 'Title' }), titleInput]));
+
+    // Classes, dates, and the live check right under them
+    var classesBox = h('div', { class: 'field' });
+    body.appendChild(classesBox);
+    var rowsBox = h('div', { class: 'rows' });
+    body.appendChild(h('div', { class: 'field' }, [h('span', { class: 'label', text: 'Date and period' }), rowsBox]));
+    var checkBox = h('div', { class: 'field', 'aria-live': 'polite' });
+    body.appendChild(checkBox);
+
+    var fmt = h('select', { class: 'select', id: 'f-format', onchange: function (ev) { B.format = ev.target.value; } },
+      [h('option', { value: '', text: 'Choose…' })].concat(S.boot.formats.map(function (f) { return h('option', { value: f, text: f }); })));
+    fmt.value = B.format;
+    body.appendChild(h('div', { class: 'field' }, [h('label', { for: 'f-format', text: 'Format' }), fmt]));
+
+    // Notes and announcement
+    var notes = h('textarea', { class: 'textarea', id: 'f-notes', maxlength: '1000', oninput: function (ev) { B.notes = ev.target.value; } });
+    notes.value = B.notes;
+    body.appendChild(h('div', { class: 'field' }, [h('label', { for: 'f-notes' }, ['Notes ', h('span', { class: 'hint', text: '(optional; staff only; logistics only, no student names)' })]), notes]));
+    var ann = h('input', { type: 'checkbox', id: 'f-ann', checked: B.announced, onchange: function (ev) { B.announced = ev.target.checked; } });
+    body.appendChild(h('label', { class: 'check', for: 'f-ann' }, [ann, h('span', null, [h('b', { text: 'Announced to students' }),
+      h('span', { class: 'hint', text: ' Leave this off while the date is still tentative. Students see the entry only once it is ticked.' })])]));
+
+    function renderClasses() {
+      clear(classesBox);
+      var mine = sectionsAll.filter(function (s) { return s.mine; });
+      var canAll = isSlt() || S.boot.settings.teachersBookAnySection;
+      var list = mode === 'edit' ? [] : (B.showAll || !mine.length ? (canAll ? sectionsAll : mine) : mine);
+      classesBox.appendChild(h('span', { class: 'label', text: mode === 'edit' ? 'Class' : 'Which classes?' }));
+      if (mode === 'edit') {
+        classesBox.appendChild(h('div', { class: 'muted', text: keyLabel(B.keys[0]) + '. To move it to another class, delete it and add a new one.' }));
+        return;
+      }
+      if (canAll && mine.length) {
+        classesBox.appendChild(h('label', { class: 'check' }, [h('input', { type: 'checkbox', checked: B.showAll, onchange: function (ev) { B.showAll = ev.target.checked; renderClasses(); } }), 'Show all classes']));
+      }
+      if (B.showAll || !mine.length) {
+        classesBox.appendChild(h('input', { class: 'input', type: 'search', placeholder: 'Find a class', 'aria-label': 'Find a class', value: B.search,
+          oninput: function (ev) { B.search = ev.target.value; renderClassList(listBox, list); } }));
+      }
+      var listBox = h('div', { class: 'classes' });
+      classesBox.appendChild(listBox);
+      renderClassList(listBox, list);
+      if (!list.length) classesBox.appendChild(h('p', { class: 'muted', text: 'No classes are linked to your account in the PowerSchool export. Ask the calendar admin.' }));
+    }
+
+    function toggleKey(k, on) {
+      var i = B.keys.indexOf(k);
+      if (on && i < 0) {
+        B.keys.push(k);
+        var firstDate = B.keys.length > 1 && B.rows[B.keys[0]] ? B.rows[B.keys[0]].date : (opts.date || (item && item.date) || '');
+        var sec = k.indexOf('section:') === 0 ? S.sections[k.slice(8)] : null;
+        rowFor(k, firstDate, firstDate ? (item && item.periods.length ? item.periods.slice() : meetingPeriodsOn(sec, firstDate)) : []);
+      }
+      if (!on && i >= 0) {
+        B.keys.splice(i, 1);
+        delete B.rows[k];
+      }
+      renderRows();
+      schedule();
+    }
+
+    function renderClassList(box, list) {
+      clear(box);
+      var q = B.search.toLowerCase();
+      var byGrade = {};
+      list.forEach(function (s) {
+        if (q && (s.label + ' ' + s.teachers.map(function (t) { return t.name; }).join(' ')).toLowerCase().indexOf(q) < 0) return;
+        var g = s.grades[0] || '?';
+        (byGrade[g] = byGrade[g] || []).push(s);
+      });
+      S.boot.settings.grades.forEach(function (g) {
+        if (!byGrade[g] && !(isSlt() && B.showAll)) return;
+        box.appendChild(h('div', { class: 'classes__grade', text: 'Grade ' + g }));
+        if (isSlt() && (B.showAll || !sectionsAll.some(function (s) { return s.mine; }))) {
+          var gk = 'grade:' + g;
+          box.appendChild(h('label', { class: 'check' }, [
+            h('input', { type: 'checkbox', checked: B.keys.indexOf(gk) >= 0, onchange: function (ev) { toggleKey(gk, ev.target.checked); } }),
+            h('span', null, [h('b', { text: 'All of Grade ' + g }), h('small', { text: 'Every student in the grade, e.g. for an exam' })])
+          ]));
+        }
+        (byGrade[g] || []).forEach(function (s) {
+          var k = sectionKey(s);
+          var meets = s.meetings && s.meetings.length ? describeMeetings(s.meetings) : 'Meeting times not in the export';
+          box.appendChild(h('label', { class: 'check' }, [
+            h('input', { type: 'checkbox', checked: B.keys.indexOf(k) >= 0, onchange: function (ev) { toggleKey(k, ev.target.checked); } }),
+            h('span', null, [s.label + (s.mine ? '' : ' · ' + s.teachers.map(function (t) { return t.name; }).join(', ')),
+              h('small', { text: meets + ' · ' + plural(s.students, 'student') })])
+          ]));
+        });
+      });
+    }
+
+    function describeMeetings(ms) {
+      var byP = {};
+      ms.forEach(function (m) { (byP[m.period] = byP[m.period] || []).push(m.day); });
+      return Object.keys(byP).sort(function (a, b) { return (+a || 0) - (+b || 0); }).map(function (p) {
+        return 'P' + p + ' on Day' + (byP[p].length > 1 ? 's ' : ' ') + byP[p].join(', ');
+      }).join(' · ');
+    }
+
+    function renderRows() {
+      clear(rowsBox);
+      if (!B.keys.length) {
+        rowsBox.appendChild(h('p', { class: 'muted', text: 'Choose a class first.' }));
+        return;
+      }
+      B.keys.forEach(function (k, idx) {
+        var r = B.rows[k];
+        var sec = k.indexOf('section:') === 0 ? S.sections[k.slice(8)] : null;
+        var card = h('div', { class: 'rowcard' });
+        var id = 'f-date-' + idx;
+        card.appendChild(h('div', { class: 'rowcard__head' }, [h('span', { class: 'rowcard__name', text: keyLabel(k) }),
+          B.keys.length > 1 && mode !== 'edit' ? h('button', { class: 'btn btn--small btn--ghost', type: 'button', onclick: function () { toggleKey(k, false); renderClasses(); } }, 'Remove') : null]));
+        var dateInput = h('input', {
+          class: 'input', type: 'date', id: id, value: r.date, min: S.boot.settings.yearStart, max: S.boot.settings.yearEnd,
+          onchange: function (ev) {
+            r.date = D.valid(ev.target.value) ? ev.target.value : '';
+            r.periods = r.date ? meetingPeriodsOn(sec, r.date).filter(function (p) { return bellsOn(r.date).some(function (b) { return b.p === p; }); }) : [];
+            if (idx === 0) {
+              B.keys.slice(1).forEach(function (k2) {
+                if (!B.rows[k2].date) {
+                  B.rows[k2].date = r.date;
+                  var s2 = k2.indexOf('section:') === 0 ? S.sections[k2.slice(8)] : null;
+                  B.rows[k2].periods = meetingPeriodsOn(s2, r.date);
+                }
+              });
+            }
+            renderRows();
+            schedule();
+          }
+        });
+        var info = r.date ? dayInfo(r.date) : null;
+        card.appendChild(h('div', { class: 'rowcard__line' }, [h('label', { for: id, class: 'visually-hidden', text: 'Date for ' + keyLabel(k) }), dateInput,
+          r.date ? h('span', { class: 'muted', text: D.long(r.date) + (info && info.r ? ' · Day ' + info.r : '') + (info && info.s === 'CLOSED' ? ' · no school' : '') }) : null]));
+        if (r.date) {
+          var bells = bellsOn(r.date);
+          var meets = meetingPeriodsOn(sec, r.date);
+          var pbox = h('div', { class: 'periods', role: 'group', 'aria-label': 'Periods' });
+          bells.forEach(function (b) {
+            var on = r.periods.indexOf(b.p) >= 0;
+            pbox.appendChild(h('button', {
+              class: 'pchip' + (meets.indexOf(b.p) >= 0 ? ' meets' : ''), type: 'button', 'aria-pressed': on ? 'true' : 'false',
+              title: 'P' + b.p + ' ' + D.clock(b.start) + '–' + D.clock(b.end) + (meets.indexOf(b.p) >= 0 ? ' (this class meets)' : ''),
+              onclick: function () {
+                if (on) r.periods = r.periods.filter(function (p) { return p !== b.p; });
+                else r.periods = r.periods.concat([b.p]).sort(function (a, c) { return (+a || 0) - (+c || 0); });
+                renderRows();
+                schedule();
+              }
+            }, 'P' + b.p));
+          });
+          card.appendChild(pbox);
+          card.appendChild(h('span', { class: 'hint muted', text: r.periods.length ? periodText(r.periods) + ' · ' + timesFor(r.date, r.periods) : 'No period chosen: it shows as all day.' + (meets.length ? '' : '') }));
+        }
+        if (sec && sec.meetings && sec.meetings.length) {
+          var lessons = nextLessons(sec, S.boot.today, 4).filter(function (l) { return l.date !== r.date; }).slice(0, 3);
+          if (lessons.length) {
+            var q = h('div', { class: 'quick' }, [h('span', { class: 'muted', text: 'Next lessons:' })]);
+            lessons.forEach(function (l) {
+              q.appendChild(h('button', { type: 'button', onclick: function () { r.date = l.date; r.periods = l.periods.slice(); renderRows(); schedule(); } },
+                D.human(l.date) + ' · D' + l.rotation + ' · ' + periodText(l.periods)));
+            });
+            card.appendChild(q);
+          }
+        }
+        rowsBox.appendChild(card);
+      });
+    }
+
+    function draft() {
+      return {
+        category: B.category,
+        title: B.title.trim() || 'Untitled',
+        format: B.format,
+        notes: B.notes,
+        announced: B.announced,
+        excludeIds: e ? [e.id] : [],
+        rows: B.keys.map(function (k) {
+          var r = B.rows[k];
+          return k.indexOf('grade:') === 0
+            ? { grade: k.slice(6), date: r.date, periods: r.periods }
+            : { sectionId: k.slice(8), date: r.date, periods: r.periods };
+        })
+      };
+    }
+
+    function schedule() {
+      window.clearTimeout(B.timer);
+      B.error = '';
+      var ready = B.keys.length && B.keys.every(function (k) { return D.valid(B.rows[k].date); });
+      if (!ready) {
+        B.evaluation = null;
+        renderCheck();
+        return;
+      }
+      renderCheck(true);
+      B.timer = window.setTimeout(function () {
+        var seq = ++B.seq;
+        call('apiEvaluate', draft()).then(function (res) {
+          if (seq !== B.seq || layer === null) return;
+          if (!res.ok) { B.error = res.error.message; B.evaluation = null; }
+          else B.evaluation = res.data;
+          renderCheck();
+        });
+      }, 400);
+    }
+
+    function verdictBox(row) {
+      var k = B.keys[row.index];
+      var icon = { OK: '✓', WARN: '!', BLOCK: '×', INVALID: '×' }[row.verdict];
+      var head = row.verdict === 'OK' ? 'All clear' : row.verdict === 'WARN' ? 'Check before saving' :
+        row.verdict === 'BLOCK' ? 'Breaks the assessment policy' : 'Cannot be saved';
+      var box = h('div', { class: 'verdict', 'data-v': row.verdict }, [
+        h('div', { class: 'verdict__head' }, [h('span', { class: 'verdict__icon', 'aria-hidden': 'true', text: icon }), head + ' · ' + keyLabel(k)])
+      ]);
+      if (row.load && isCounted(B.category)) {
+        box.appendChild(h('span', null, 'Busiest student that day: ' + row.load.before + ' → ' + row.load.after + ' of ' + row.load.cap + ' summatives (' + plural(row.load.students, 'student') + ' in the class).'));
+      }
+      if (row.issues.length) {
+        box.appendChild(h('ul', { class: 'issues' }, row.issues.map(function (x) {
+          return h('li', null, [x.title, x.detail ? h('small', { text: x.detail }) : null]);
+        })));
+      }
+      if (row.clashes && row.clashes.length) {
+        box.appendChild(h('div', null, [h('b', { text: 'Already booked for these students:' }),
+          h('ul', { class: 'clashes' }, row.clashes.map(function (c) {
+            return h('li', { text: c.title + ' · ' + c.label + (c.teacherName ? ' · ' + c.teacherName : '') + (c.status === 'PENDING' ? ' (pending)' : '') + ' · ' + plural(c.students, 'student') });
+          }))]));
+      }
+      if (row.affected && row.affected.emails && row.affected.emails.length) {
+        box.appendChild(h('details', null, [h('summary', { text: 'Show the ' + plural(row.affected.count, 'student') }),
+          h('ul', { class: 'emails' }, row.affected.emails.map(function (m) { return h('li', { text: m }); }))]));
+      }
+      if (row.suggestions && row.suggestions.length) {
+        var q = h('div', { class: 'quick' }, [h('span', { class: 'muted', text: 'Clear days for this class:' })]);
+        row.suggestions.forEach(function (sg) {
+          q.appendChild(h('button', { type: 'button', onclick: function () {
+            B.rows[k].date = sg.date;
+            B.rows[k].periods = sg.periods.slice();
+            renderRows();
+            schedule();
+          } }, D.human(sg.date) + (sg.rotation ? ' · D' + sg.rotation : '') + (sg.periods.length ? ' · ' + periodText(sg.periods) : '')));
+        });
+        box.appendChild(q);
+      }
+      return box;
+    }
+
+    function isCounted(code) { return S.boot.counted.indexOf(code) >= 0; }
+
+    function renderCheck(pending) {
+      clear(checkBox);
+      checkBox.appendChild(h('span', { class: 'label', text: 'Check' }));
+      if (B.error) checkBox.appendChild(h('p', { class: 'error-text', role: 'alert', text: B.error }));
+      if (pending) checkBox.appendChild(h('p', { class: 'muted', text: 'Checking the calendar…' }));
+      else if (!B.evaluation) checkBox.appendChild(h('p', { class: 'muted', text: 'Choose a class and a date to check the load.' }));
+      else B.evaluation.rows.forEach(function (row) { checkBox.appendChild(verdictBox(row)); });
+      renderFoot(pending);
+      var v = B.evaluation && !pending ? B.evaluation.verdict : '';
+      if (v && v !== B.lastVerdict && v !== 'OK' && checkBox.scrollIntoView) checkBox.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      if (!pending) B.lastVerdict = v;
+    }
+
+    function renderFoot(pending) {
+      clear(dr.foot);
+      var ev = B.evaluation;
+      var v = ev ? ev.verdict : '';
+      var claim = mode === 'claim';
+      var needsReason = !claim && ev && (v === 'BLOCK' || ev.needsReason);
+      var label = claim ? 'Add to calendar' : mode === 'edit' ? 'Save changes' : 'Save';
+      var kind = '';
+      if (needsReason && v === 'BLOCK' && !isSlt()) { label = 'Ask SLT to approve'; kind = 'request'; }
+      else if (needsReason && v === 'BLOCK' && isSlt()) { label = 'Override and save'; kind = 'override'; }
+      else if (needsReason) { label = 'Save with reason'; kind = 'override'; }
+
+      if (needsReason) {
+        var rid = 'f-reason';
+        var ta = h('textarea', { class: 'textarea', id: rid, maxlength: '500', oninput: function (x) { B.reason = x.target.value; } });
+        ta.value = B.reason;
+        dr.foot.appendChild(h('div', { class: 'reason', style: 'width:100%' }, [
+          h('label', { for: rid, text: kind === 'request' ? 'Why does it have to be this date? SLT will see this.' : 'Reason for going over the limit (recorded)' }),
+          ta
+        ]));
+      }
+      var invalid = v === 'INVALID';
+      dr.foot.appendChild(h('span', { class: 'note', text: invalid ? 'Fix the problem above to save.' :
+        (S.boot.settings.mirrorEnabled ? 'Saved entries are copied to the grade calendar.' : '') }));
+      dr.foot.appendChild(h('button', { class: 'btn', type: 'button', onclick: closeDrawer }, 'Cancel'));
+      dr.foot.appendChild(h('button', {
+        class: 'btn ' + (kind ? 'btn--primary' : 'btn--gold'), type: 'button', disabled: invalid || B.saving || pending || !B.keys.length,
+        onclick: function () { save(kind); }
+      }, B.saving ? 'Saving…' : label));
+    }
+
+    function save(kind) {
+      if (!B.title.trim()) { B.error = 'Give the assessment a title.'; renderCheck(); titleInput.focus(); return; }
+      if (kind && B.reason.trim().length < 5) { B.error = 'Write a short reason (at least a few words).'; renderCheck(); var r = $('f-reason'); if (r) r.focus(); return; }
+      B.saving = true;
+      renderFoot();
+      var d = draft();
+      if (kind === 'request') d.requestReason = B.reason.trim();
+      if (kind === 'override') d.overrideReason = B.reason.trim();
+      var p;
+      if (mode === 'edit') {
+        var r0 = d.rows[0];
+        p = call('apiUpdate', { id: e.id, patch: {
+          title: d.title, format: d.format, notes: d.notes, announced: d.announced, category: d.category,
+          date: r0.date, periods: r0.periods, requestReason: d.requestReason || '', overrideReason: d.overrideReason || ''
+        } });
+      } else {
+        if (mode === 'claim') d.importId = item.id;
+        p = call('apiCreate', d);
+      }
+      p.then(function (res) {
+        B.saving = false;
+        if (!res.ok) {
+          B.error = res.error.message;
+          if (res.error.details && res.error.details.evaluation) B.evaluation = res.error.details.evaluation;
+          renderCheck();
+          return;
+        }
+        closeDrawer();
+        var st = res.data.status;
+        if (mode === 'claim') S.boot.counts.imports = Math.max(0, S.boot.counts.imports - 1);
+        if (st === 'PENDING') {
+          if (isSlt()) S.boot.counts.pending++;
+          toast('Sent to SLT for approval. You will get an email when they decide.', 'ok');
+        } else {
+          toast(mode === 'edit' ? 'Saved.' : 'Added to the calendar' + (B.announced ? '.' : '. Students will see it once you mark it as announced.'), 'ok');
+        }
+        renderHeader();
+        var first = (res.data.entries && res.data.entries[0]) || res.data.entry;
+        if (first && first.date && mode !== 'edit') {
+          var r = rangeFor(S.view, S.date);
+          if (first.date < r.start || first.date > r.end) S.date = first.date;
+        }
+        syncUrl();
+        renderToolbar();
+        refresh();
+      });
+    }
+
+    renderClasses();
+    renderRows();
+    schedule();
+    if (!B.keys.length) renderCheck();
+  }
+
+  /* ---------- SLT requests ---------- */
+
+  function openRequests(opener) {
+    var dr = openDrawer({ eyebrow: 'SLT', title: 'Requests to approve', wide: true }, opener);
+    dr.body.appendChild(h('p', { class: 'muted', text: 'Loading…' }));
+    call('apiPending').then(function (res) {
+      clear(dr.body);
+      if (!res.ok) { dr.body.appendChild(h('p', { class: 'error-text', text: res.error.message })); return; }
+      S.boot.counts.pending = res.data.length;
+      renderHeader();
+      if (!res.data.length) { dr.body.appendChild(h('div', { class: 'empty' }, [h('b', { text: 'Nothing waiting.' }), 'Teachers\' requests to go over the limit appear here.'])); return; }
+      res.data.forEach(function (p) {
+        var note = h('textarea', { class: 'textarea', placeholder: 'Note to the teacher (optional)', 'aria-label': 'Note to the teacher' });
+        var card = h('div', { class: 'card' }, [
+          h('h3', { text: p.title }),
+          h('span', { class: 'muted', text: p.label + ' · ' + D.long(p.date) + ' · ' + periodText(p.periods) + ' · ' + (p.teacherName || '') }),
+          h('div', null, [h('b', { text: 'Reason: ' }), p.requestReason || '']),
+          p.check ? h('ul', { class: 'issues' }, p.check.issues.map(function (x) { return h('li', null, [x.title, x.detail ? h('small', { text: x.detail }) : null]); })) : null,
+          note
+        ]);
+        var btns = h('div', { class: 'rowcard__line' });
+        function decide(approve) {
+          return function (ev) {
+            var btn = ev.currentTarget;
+            btn.disabled = true;
+            call('apiDecide', { id: p.id, approve: approve, note: note.value }).then(function (r) {
+              if (!r.ok) { toast(r.error.message); btn.disabled = false; return; }
+              toast(approve ? 'Approved. The teacher has been emailed.' : 'Declined. The teacher has been emailed.', 'ok');
+              S.boot.counts.pending = Math.max(0, S.boot.counts.pending - 1);
+              renderHeader();
+              card.parentNode.removeChild(card);
+              refresh();
+            });
+          };
+        }
+        btns.appendChild(h('button', { class: 'btn btn--primary', type: 'button', onclick: decide(true) }, 'Approve'));
+        btns.appendChild(h('button', { class: 'btn btn--danger', type: 'button', onclick: decide(false) }, 'Decline'));
+        btns.appendChild(h('button', { class: 'btn btn--ghost', type: 'button', onclick: function () {
+          closeDrawer();
+          S.date = p.date;
+          S.view = 'week';
+          setScope(p.sectionId ? 'section:' + p.sectionId : 'grade:' + p.grade);
+          renderToolbar();
+        } }, 'Show in calendar'));
+        card.appendChild(btns);
+        dr.body.appendChild(card);
+      });
+    });
+  }
+
+  /* ---------- old grade-calendar entries ---------- */
+
+  function openImports(opener) {
+    var dr = openDrawer({ eyebrow: 'From the old grade calendars', title: 'Bring your entries across', wide: true }, opener);
+    dr.body.appendChild(h('p', { class: 'muted', text: 'Loading…' }));
+    call('apiImports').then(function (res) {
+      clear(dr.body);
+      if (!res.ok) { dr.body.appendChild(h('p', { class: 'error-text', text: res.error.message })); return; }
+      S.boot.counts.imports = res.data.length;
+      renderHeader();
+      dr.body.appendChild(h('p', { class: 'muted', text: 'These were added straight to the grade calendars before the app existed. Add each one to the app (it then stays in sync) or mark it as not an assessment.' }));
+      if (!res.data.length) { dr.body.appendChild(h('div', { class: 'empty' }, [h('b', { text: 'All done.' }), 'Nothing left to bring across.'])); return; }
+      res.data.forEach(function (item) {
+        var card = h('div', { class: 'card' }, [
+          h('h3', { text: item.title }),
+          h('span', { class: 'muted', text: 'Grade ' + item.grade + ' · ' + D.long(item.date) + (item.endDate && item.endDate !== item.date ? ' to ' + D.long(item.endDate) : '') +
+            (item.startTime ? ' · ' + D.clock(item.startTime) + '–' + D.clock(item.endTime) : ' · all day') + (isSlt() && item.creatorName ? ' · ' + item.creatorName : '') })
+        ]);
+        card.appendChild(h('div', { class: 'rowcard__line' }, [
+          h('button', { class: 'btn btn--gold', type: 'button', onclick: function () { openBooking({ mode: 'claim', item: item }); } }, 'Add to the app'),
+          h('button', { class: 'btn', type: 'button', onclick: function (ev) {
+            var btn = ev.currentTarget;
+            btn.disabled = true;
+            call('apiIgnoreImport', { id: item.id }).then(function (r) {
+              if (!r.ok) { toast(r.error.message); btn.disabled = false; return; }
+              S.boot.counts.imports = Math.max(0, S.boot.counts.imports - 1);
+              renderHeader();
+              card.parentNode.removeChild(card);
+            });
+          } }, 'Not an assessment')
+        ]));
+        dr.body.appendChild(card);
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------------
+     7. URL, boot
+     ------------------------------------------------------------------ */
+
+  function syncUrl() {
+    try {
+      if (window.google && window.google.script && window.google.script.history) {
+        window.google.script.history.replace(null, { view: S.view, date: S.date, scope: S.scope });
+      }
+    } catch (e) { /* not available in every context */ }
+  }
+
+  function readJson(id) {
+    try { return JSON.parse($(id).textContent || 'null'); } catch (e) { return null; }
+  }
+
+  function fatal(message) {
+    var v = clear($('view'));
+    v.appendChild(h('div', { class: 'empty' }, [h('b', { text: 'The calendar could not load.' }), message]));
+    $('app').setAttribute('aria-busy', 'false');
+  }
+
+  function start(env, params) {
+    if (!env || !env.ok) {
+      fatal(env && env.error ? env.error.message : 'Please reload the page.');
+      return;
+    }
+    S.boot = env.data;
+    S.boot.sections.forEach(function (s) { S.sections[s.id] = s; });
+    S.boot.categories.forEach(function (c) { S.cats[c.code] = c; });
+    var u = S.boot.user;
+
+    var mq = window.matchMedia ? window.matchMedia('(max-width: 759px)') : null;
+    S.narrow = !!(mq && mq.matches);
+    if (mq) {
+      var onChange = function () { S.narrow = mq.matches; renderView(); };
+      if (mq.addEventListener) mq.addEventListener('change', onChange); else if (mq.addListener) mq.addListener(onChange);
+    }
+
+    var p = params || {};
+    S.view = p.view === 'week' || p.view === 'month' ? p.view : (store('view:' + u.email) || (S.narrow ? 'week' : 'month'));
+    S.date = D.valid(p.date) ? p.date : S.boot.today;
+    var scope = p.scope || store('scope:' + u.email);
+    if (!u.isStaff) scope = 'me';
+    else if (!scope || (scope.indexOf('section:') === 0 && !S.sections[scope.slice(8)])) {
+      var mine = S.boot.sections.filter(function (s) { return s.mine; });
+      scope = mine.length && mine[0].grades.length ? 'grade:' + mine[0].grades[0] : 'all';
+    }
+    S.scope = scope;
+    if (p.view === 'requests' && isSlt()) window.setTimeout(function () { openRequests(); }, 300);
+
+    renderAll();
+    $('app').setAttribute('aria-busy', 'false');
+    fetchRange();
+  }
+
+  function boot() {
+    var env = readJson('boot-data');
+    var params = readJson('boot-params') || {};
+    if (!params.view && !params.date && !params.scope && window.location && window.location.search) {
+      window.location.search.slice(1).split('&').forEach(function (kv) {
+        var parts = kv.split('=');
+        if (parts[0]) params[decodeURIComponent(parts[0])] = decodeURIComponent((parts[1] || '').replace(/\+/g, ' '));
+      });
+    }
+    if (env) { start(env, params); return; }
+    call('apiBootstrap').then(function (res) { start(res, params); });
+  }
+
+  window.AC = { boot: boot, state: S };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
