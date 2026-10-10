@@ -26,6 +26,7 @@ One row per class section.
 | `course_name` | yes | `Visual Arts 9` | `Courses.Course_Name` |
 | `section_number` | yes | `1` | `Sections.Section_Number` |
 | `teacher_email` | yes | `teacher@aisa.sch.ae` | lead teacher's `Teachers.Email_Addr` |
+| `teacher_name` | no | `Doe, Jane` | lead teacher's `Teachers.LastFirst`, shown next to their entries |
 | `co_teacher_emails` | no | `a@aisa.sch.ae;b@aisa.sch.ae` | other teachers on the section (`SectionTeacher`), separated by `;` |
 | `expression` | yes | `3(1,4,7) 5(9)` | `Sections.Expression`: periods and cycle days the class meets |
 | `term` | yes | `S1` | `Terms.Abbreviation` (`S1`, `S2`, or the full-year code) |

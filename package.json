@@ -1,0 +1,13 @@
+{
+  "name": "aisa-assessment-calendar",
+  "private": true,
+  "description": "AISA assessment calendar: Google Apps Script web app backed by a Google Sheet.",
+  "scripts": {
+    "test": "TZ=Asia/Dubai node --test tests/*.test.js",
+    "preview": "node preview/build.mjs",
+    "screenshots": "TZ=Asia/Dubai node preview/screenshots.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

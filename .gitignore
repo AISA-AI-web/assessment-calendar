@@ -1,0 +1,8 @@
+# clasp: each deployment (6–12, K–5) has its own script ID and credentials
+.clasp.json
+.clasprc.json
+
+node_modules/
+preview/dist/
+preview/screenshots/
+.DS_Store
