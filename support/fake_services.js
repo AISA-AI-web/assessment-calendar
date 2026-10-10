@@ -38,6 +38,8 @@
 
       userEmail: function () { return String(state.user || '').trim().toLowerCase(); },
 
+      effectiveEmail: function () { return String(state.owner || 'owner@school.example').trim().toLowerCase(); },
+
       today: function () { return state.today; },
 
       stamp: function () {

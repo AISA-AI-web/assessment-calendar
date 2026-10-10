@@ -28,12 +28,14 @@ var Svc = (function () {
     return cal;
   }
 
-  function plainEvent(e) {
+  function plainEvent(e, withCreators) {
     var allDay = e.isAllDayEvent();
     var start = allDay ? e.getAllDayStartDate() : e.getStartTime();
     var end = allDay ? e.getAllDayEndDate() : e.getEndTime();
     var creators = [];
-    try { creators = e.getCreators() || []; } catch (x) { creators = []; }
+    if (withCreators) {
+      try { creators = e.getCreators() || []; } catch (x) { creators = []; }
+    }
     return {
       id: e.getId(),
       title: e.getTitle() || '',
@@ -50,6 +52,11 @@ var Svc = (function () {
   return {
     userEmail: function () {
       return U.normEmail(Session.getActiveUser().getEmail());
+    },
+
+    /** The account the script runs as: the deployer for web app calls, the trigger owner for triggers. */
+    effectiveEmail: function () {
+      return U.normEmail(Session.getEffectiveUser().getEmail());
     },
 
     today: function () { return fmt(new Date(), 'yyyy-MM-dd'); },
@@ -75,9 +82,10 @@ var Svc = (function () {
       return list.length ? list[0].getId() : '';
     },
 
-    /** Events overlapping [fromYmd, toYmdExclusive). */
-    calendarEvents: function (calId, fromYmd, toYmdExclusive) {
-      return calendar(calId).getEvents(at(fromYmd, '00:00'), at(toYmdExclusive, '00:00')).map(plainEvent);
+    /** Events overlapping [fromYmd, toYmdExclusive). Creators are fetched only when asked for. */
+    calendarEvents: function (calId, fromYmd, toYmdExclusive, withCreators) {
+      return calendar(calId).getEvents(at(fromYmd, '00:00'), at(toYmdExclusive, '00:00'))
+        .map(function (e) { return plainEvent(e, withCreators); });
     },
 
     /**
@@ -113,13 +121,9 @@ var Svc = (function () {
     },
 
     sendMail: function (msg) {
-      MailApp.sendEmail({
-        to: msg.to,
-        subject: msg.subject,
-        body: msg.body,
-        name: 'Assessment Calendar',
-        replyTo: msg.replyTo || ''
-      });
+      var options = { to: msg.to, subject: msg.subject, body: msg.body, name: 'Assessment Calendar' };
+      if (msg.replyTo) options.replyTo = msg.replyTo;
+      MailApp.sendEmail(options);
     },
 
     appUrl: function () {

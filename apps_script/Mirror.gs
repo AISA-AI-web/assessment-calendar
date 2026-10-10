@@ -165,7 +165,7 @@ var Mirror = (function () {
     s.grades.forEach(function (g) {
       var cal = s.gradeCalendars[g];
       if (!cal) return;
-      Svc.calendarEvents(cal, from, U.addDays(s.yearEnd, 1)).forEach(function (ev) {
+      Svc.calendarEvents(cal, from, U.addDays(s.yearEnd, 1), true).forEach(function (ev) {
         if (known[ev.id] || /Managed by the Assessment Calendar/.test(ev.description || '')) return;
         known[ev.id] = true;
         rows.push({

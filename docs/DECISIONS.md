@@ -9,7 +9,8 @@ open. Update it whenever a decision changes, so this context is not lost again.
 
 ## Scope
 
-- **Phase 1:** Grades 6–12 (Middle and High School).
+- **Phase 1:** Grades 6–12 (Middle and High School). **Pilot: staff PD day,
+  Tuesday 20 October 2026**. Students first see it on 21 October.
 - **Phase 2:** K–5. Same codebase, deployed separately with its own Sheet,
   settings (Day A–F cycle, trimesters, elementary bell times) and URL.
 
@@ -19,87 +20,47 @@ open. Update it whenever a decision changes, so this context is not lost again.
 |---|---|---|
 | 1 | Front end | Apps Script web app (HtmlService) that only AISA Google accounts can open. The code lives in this repo and is pushed with `clasp`. No GitHub Pages front end. |
 | 2 | Data store | One private Google Sheet per division. |
-| 3 | Load unit | Per student. A PowerSchool export of student → section enrolments (student IDs, no names) lets the app count each student's summatives per day exactly. |
-| 4 | Daily limit | Max 2 summatives per student per day. Teachers **cannot save** a booking that gives any student a 3rd. SLT can override, and the reason is recorded. |
-| 5 | Formatives | Allowed. Shown in a lighter style and never counted toward the limit. |
-| 6 | Audience | Staff (read/write by role) and students (read-only). |
-| 7 | Student visibility | An entry is staff-only until its teacher ticks "Announced to students". |
-| 8 | Grade calendars | Import the existing entries once, with each entry's creator confirming its section. From then on the app mirrors every entry one-way to the matching grade calendar, and teachers stop adding to those calendars directly. |
-| 9 | Internal Calendar | Read-only overlay from "AISA (Internal Calendar)". See below. |
+| 3 | Load unit | Per student. A PowerSchool export of student → section enrolments (student IDs, no names) lets the app count each student's summatives per day exactly. IT can produce it, including meeting patterns, teacher emails and student emails. |
+| 4 | Daily limit | Max 2 summatives (including exams) per student per day. Teachers **cannot save** a booking that gives any student a 3rd. They can ask SLT, who approves or declines. SLT can also override directly, with a recorded reason. |
+| 5 | Who approves | SLT and admins only. Heads of Department have the same rights as other teachers. |
+| 6 | Formatives | Allowed. Shown in a lighter style and never counted. |
+| 7 | Audience | Staff (read/write by role) and students (read-only). Students are on AISA Google accounts. |
+| 8 | Student visibility | An entry is staff-only until its teacher ticks "Announced to students". |
+| 9 | Grade calendars | Import the existing entries once (each creator claims theirs), then mirror every entry one-way to the matching grade calendar. Believed staff-only, so unannounced entries are mirrored too (`mirror_unannounced = TRUE`); **confirm with Savvas**. |
+| 10 | Internal Calendar | Read-only overlay from "AISA (Internal Calendar)", synced hourly. |
 
-## Defaults (assumed until someone says otherwise)
+## How it works now (built)
 
-- **Views:** the week view is a period grid built from the bell times below,
-  and the month view is a day grid. Every date shows its rotation day (Day 1–10).
-  There are views per grade, per section, "my classes" (teacher) and "my
-  assessments" (student).
-- **Booking form:** pick section(s), then date and period(s). Grade, subject
-  and teacher come from the PowerSchool export, not free text. Category is
-  Summative or Exam (counted) or Formative (not counted). Format (test, essay,
-  lab, project, presentation, oral) is a separate field.
-- **Override flow:** a blocked teacher can press "Request override". The entry
-  is saved as Pending, and SLT is emailed. Until approved it is visible to staff
-  only, not mirrored, and not counted.
-- **Days:** nobody can book a no-student day from the Internal Calendar (breaks,
-  PD days, holidays, Eid). Flagged weeks (PTC, Career Week, testing windows)
-  show a warning.
-- **No weekly cap and no minimum-notice rule.** The prototype had 3 per week
-  and 5 days' notice, but neither is school policy. Both exist as settings,
-  switched off.
-- **Roles:** Admin; SLT (overrides, edits everything); Teacher (edits entries
-  for their own sections); Student (read-only, announced entries only). The
-  staff list and roles live in a Staff tab, seeded from the active staff list.
-- **Exams:** SLT enters the semester exam (G9–12) and IB mock timetables.
-  Regular summatives are blocked inside exam windows.
-- **Bell schedules** are date-ranged in Settings, so Ramadan timings can be added.
-- **UI:** keep the prototype's look and interaction: AISA purple `#21076C`,
-  gold `#D8B664`, DM Sans. Its client source can be recovered from the
-  generated preview bundle (`bbaki-ai/sample-assessment-calendar`,
-  `index.html`). The backend is rebuilt.
-- **Limits:** the web app runs as the deploying account for about 700 users.
-  Each page load makes one server call (data inlined into the page), and
-  computed load is cached.
-
-## Internal Calendar overlay
-
-A time-driven trigger syncs the calendar into a cache tab. Events are sorted
-into categories by keyword rules in Settings, with per-event overrides, because
-the titles are typed by hand.
-
-| What appears on the calendar | Treatment |
-|---|---|
-| `MS/ HS Day N` all-day events | Rotation day shown on each date; used to match section meeting patterns |
-| Breaks, PD "NO STUDENTS", holidays, Eid | No-student day: booking blocked |
-| MAP, CAT4, PIRLS, ABT, SAT, IB exams/mocks | External testing: shown as context, with a warning |
-| Parent-Teacher Conferences, Career Week/Fair, trips, grade events | Shown as context; warning when flagged |
-| Staff meetings, after-school events, `Elem. Day X` | Hidden in the secondary app |
-
-Quirks seen on 10 Oct 2026: titles carry trailing tabs and spaces. The rotation
-goes from Day 10 (Fri 9 Oct) to Day 3 (Wed 21 Oct) after the mid-term break
-and PD days, so rotation days must be read from the calendar, not computed.
-
-## Secondary bell times
-
-| Period | Mon–Thu | Fri |
-|---|---|---|
-| 1 | 7:55–8:45 | 7:40–8:30 |
-| 2 | 8:50–9:40 | 8:35–9:25 |
-| 3 | 9:45–10:35 | 9:45–10:35 |
-| 4 | 11:00–11:50 | 10:40–11:30 |
-| 5 | 11:55–12:45 | — |
-| 6 | 1:10–2:00 | — |
-| 7 | 2:05–2:55 | — |
-
-Mon–Thu: homeroom 7:40–7:50, recess 10:35–10:55, lunch 12:45–1:05.
-Fri: no homeroom, recess 9:25–9:40, 4 periods only.
+- **Views:** a month grid and a week grid by period (bell times, with Friday
+  P1–P4 only), plus an agenda on phones. Every date shows its rotation day.
+  The scope can be all grades, one grade, one class (meaning everything that
+  class's students have, in every subject) or, for students, my assessments.
+- **Load meter:** the busiest student's summative count against the limit, for
+  the chosen scope. Filters never change it.
+- **Booking:** pick class(es), date and period. The check runs as you type and
+  shows the clashing assessments and their teachers, how many students are
+  affected (their emails only for the class's own teachers and SLT), and the
+  next clear days when the class actually meets.
+- **Statuses:** ACTIVE, PENDING (waiting for SLT; not counted, not mirrored),
+  DECLINED (teacher can move it and resubmit), CANCELLED.
+- **Internal Calendar rules:** rotation days are read, never computed, because
+  holidays skip numbers. Closures block everyone. "No assessments" days and
+  exam windows block teachers. Testing and busy days (PTC, Career Fair,
+  trips) warn. Timed events warn only if the booking overlaps their periods.
+  Events carry grades parsed from their titles ("G6-G9", "High School",
+  "Senior"), and admins can override any single event.
+- **Not built (on purpose):** weekly cap and minimum notice. The prototype had
+  3 per week and 5 days' notice, but neither is school policy.
 
 ## Open questions
 
-1. Are students in the same Google Workspace domain as staff?
-2. PowerSchool export: who runs it, and can it include each section's meeting
-   pattern (cycle days + period), teacher email and student email?
-3. Who can see the 7 grade calendars? If students or parents can, only
-   announced entries are mirrored.
-4. Target date for a pilot.
-5. Should the Sheet and script live in a Shared Drive rather than a personal
-   account?
+1. Are the 7 grade calendars staff-only? (Sets `mirror_unannounced`.)
+2. PowerSchool day codes in `expression`: numbers (1–10) or letters? (Settings
+   → `day_letter_map` if letters.)
+3. Semester exam dates and IB DP exam dates are still to be added to the
+   Internal Calendar, and Spring Break and Eid al-Fitr are not there yet.
+4. Who owns the Sheet and the deployment long-term (a Shared Drive and a role
+   account are safer than a personal account)?
+5. Parents: policy 4.3 says the calendar is shared with families. Not in
+   phase 1. A later option is a read-only family view or published grade
+   calendars of announced entries.

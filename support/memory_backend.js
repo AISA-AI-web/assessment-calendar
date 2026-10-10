@@ -6,7 +6,11 @@
 (function (root) {
   'use strict';
 
-  function str(v) { return v === null || v === undefined ? '' : String(v); }
+  /** Like Sheets: a leading quote marks text and is not part of the stored value. */
+  function str(v) {
+    var s = v === null || v === undefined ? '' : String(v);
+    return s.charAt(0) === "'" ? s.slice(1) : s;
+  }
 
   function MemoryBackend(tables) {
     this.db = {};

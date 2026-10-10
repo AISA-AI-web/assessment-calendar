@@ -97,7 +97,9 @@ var Setup = (function () {
           return { schedule: b[0], from: b[1], to: b[2], weekdays: b[3], period: b[4], start: b[5], end: b[6] };
         }));
       }
-      if (me && !Store.all('Staff').some(function (r) { return U.normEmail(r.email) === me; })) {
+      var staff = Store.all('Staff');
+      var hasAdmin = staff.some(function (r) { return U.clean(r.role).toUpperCase() === 'ADMIN'; });
+      if (me && !hasAdmin && !staff.some(function (r) { return U.normEmail(r.email) === me; })) {
         Store.append('Staff', [{ email: me, name: '', role: 'ADMIN', notes: 'Added by Set up' }]);
       }
     });
@@ -118,10 +120,30 @@ var Setup = (function () {
 })();
 
 /* ---------------------------------------------------------------------
+   Who may run menu items and triggers
+   ------------------------------------------------------------------ */
+
+/**
+ * Menu items and triggers are ordinary global functions, so a signed-in
+ * person could call them from the browser through google.script.run, where
+ * they would run as the account that deployed the web app. They are only
+ * allowed for whoever is actually running the script (the Sheet menu, a
+ * trigger, the deployer) or for an ADMIN in the Staff tab.
+ */
+function requireAdminCaller_() {
+  var active = Svc.userEmail();
+  var effective = Svc.effectiveEmail();
+  if (!active || active === effective) return;
+  if (Dir.userFor(active).role === 'ADMIN') return;
+  throw U.err('FORBIDDEN', 'Only admins can run this.');
+}
+
+/* ---------------------------------------------------------------------
    Triggers
    ------------------------------------------------------------------ */
 
 function cronHourly() {
+  requireAdminCaller_();
   try { Days.sync(); } catch (e) { console.error('Internal Calendar sync failed: ' + (e.stack || e)); }
   try { Mirror.retryFailed(); } catch (e) { console.error('Mirror retry failed: ' + (e.stack || e)); }
 }
@@ -162,6 +184,7 @@ function guarded_(title, fn) {
 }
 
 function menuSetup() {
+  requireAdminCaller_();
   guarded_('Set up', function () {
     SpreadsheetApp.getActiveSpreadsheet().setSpreadsheetTimeZone('Asia/Dubai');
     var r = Setup.run();
@@ -178,6 +201,7 @@ function menuSetup() {
 }
 
 function menuSyncInternal() {
+  requireAdminCaller_();
   guarded_('Internal Calendar', function () {
     var r = Days.sync();
     return 'Copied ' + r.events + ' events. Check the InternalEvents tab: correct any event with override_category or override_grades.';
@@ -185,10 +209,12 @@ function menuSyncInternal() {
 }
 
 function menuProcessImport() {
+  requireAdminCaller_();
   guarded_('PowerSchool import', function () { return PsImport.describe(PsImport.process()); });
 }
 
 function menuImportGradeCalendars() {
+  requireAdminCaller_();
   guarded_('Grade calendars', function () {
     var r = Mirror.importExisting();
     var per = Object.keys(r.perGrade).map(function (g) { return 'Grade ' + g + ': ' + r.perGrade[g]; }).join(', ');
@@ -199,6 +225,7 @@ function menuImportGradeCalendars() {
 }
 
 function menuResyncMirror() {
+  requireAdminCaller_();
   guarded_('Grade calendars', function () {
     var r = Mirror.resyncAll();
     return 'Updated ' + r.synced + ' entries.' + (r.remaining ? ' ' + r.remaining + ' are left: run this again.' : '');
@@ -206,6 +233,7 @@ function menuResyncMirror() {
 }
 
 function menuOpenApp() {
+  requireAdminCaller_();
   var url = Config.get().appUrl || Svc.appUrl();
   alert_('Web app', url ? url : 'Deploy the web app first: Deploy → New deployment → Web app.');
 }

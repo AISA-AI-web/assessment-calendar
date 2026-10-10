@@ -67,6 +67,7 @@ var Store = (function () {
       headers.forEach(function (h, c) {
         if (!h) return;
         var v = row[c];
+        if (typeof v === 'string' && /^'[=+\-@]/.test(v)) v = v.slice(1);   // undo our own quote prefix
         if (v !== '' && v !== null && v !== undefined) blank = false;
         o[h] = v === null || v === undefined ? '' : v;
       });
@@ -94,12 +95,18 @@ var Store = (function () {
 
   function headers(name) { return table(name).headers; }
 
+  /**
+   * A value as cell text. Text that starts like a formula (= + - @) gets
+   * Sheets' quote prefix, so a title such as "=IMPORTDATA(…)" is stored as
+   * text and never runs when an admin opens the Sheet. Sheets does not
+   * return the prefix when the cell is read.
+   */
   function cell(v) {
     if (v === null || v === undefined) return '';
     if (v === true) return 'TRUE';
     if (v === false) return 'FALSE';
-    if (typeof v === 'object' && !U.isDate(v)) return JSON.stringify(v);
-    return String(v);
+    var s = typeof v === 'object' && !U.isDate(v) ? JSON.stringify(v) : String(v);
+    return /^[=+\-@]/.test(s) ? "'" + s : s;
   }
 
   function toRow(hdrs, obj) {
