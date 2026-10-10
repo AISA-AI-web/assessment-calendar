@@ -105,6 +105,76 @@ async function shot(page, name, full) {
   await ctx.close();
 }
 
+// 5c. Teacher: book, edit, delete; claim an old entry; day panel; filters; week slot
+{
+  const { ctx, page } = await open('?as=teacher&date=2026-10-27');
+  page.on('dialog', (d) => d.accept());
+
+  await page.getByRole('button', { name: '+ Add assessment' }).click();
+  await page.locator('#f-title').fill('E2E quiz');
+  await page.locator('.classes label', { hasText: 'Biology 9 Boys' }).locator('input').check();
+  await page.locator('.rowcard input[type=date]').first().fill('2026-10-27');
+  await page.locator('.rowcard input[type=date]').first().dispatchEvent('change');
+  await page.waitForSelector('.verdict[data-v="OK"], .verdict[data-v="WARN"]', { timeout: 8000 });
+  await page.locator('.drawer__foot .btn--gold').click();
+  await page.waitForSelector('.toast');
+  check((await page.locator('.toast').last().innerText()).includes('Added to the calendar'), 'a clear booking saves');
+  await page.waitForFunction(() => !document.querySelector('#view.is-loading'));
+  const copied = await page.evaluate(() => window.__PREVIEW__.svc.events('grade9@fake').some((e) => /E2E quiz/.test(e.title)));
+  check(copied, 'the booking is copied to the Grade 9 calendar');
+
+  await page.locator('.chip', { hasText: 'E2E quiz' }).first().click();
+  await page.getByRole('button', { name: 'Edit' }).click();
+  await page.locator('#f-title').fill('E2E quiz (renamed)');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('Saved.')));
+  check(true, 'an entry can be edited');
+  await page.waitForFunction(() => !document.querySelector('#view.is-loading'));
+  await page.locator('.chip', { hasText: 'E2E quiz (renamed)' }).first().click();
+  await page.getByRole('button', { name: 'Delete' }).click();
+  await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('Deleted.')));
+  const gone = await page.evaluate(() => !window.__PREVIEW__.svc.events('grade9@fake').some((e) => /E2E quiz/.test(e.title)));
+  check(gone, 'deleting removes the grade calendar copy');
+
+  await page.evaluate(() => document.querySelectorAll('.toast').forEach((t) => { t.dataset.seen = '1'; }));
+  await page.getByRole('button', { name: /From the old calendars/ }).click();
+  const card = page.locator('.drawer .card', { hasText: 'B9 Biology summative' });
+  await card.getByRole('button', { name: 'Add to the app' }).click();
+  await page.locator('.classes label', { hasText: 'Biology 9 Boys' }).locator('input').check();
+  await page.waitForSelector('.verdict', { timeout: 8000 });
+  check(await page.locator('.rowcard input[type=date]').first().inputValue() === '2026-11-05', 'claiming keeps the old date');
+  await page.getByRole('button', { name: 'Add to calendar' }).click();
+  await page.waitForFunction(() => document.querySelector('.drawer .error-text') ||
+    [...document.querySelectorAll('.toast')].some((t) => /Added to the calendar/.test(t.textContent) && !t.dataset.seen), null, { timeout: 8000 });
+  const claimError = await page.locator('.drawer .error-text').count() ? await page.locator('.drawer .error-text').innerText() : '';
+  check(!claimError, 'claiming saves without an error' + (claimError ? ' (' + claimError + ')' : ''));
+  await page.waitForFunction(() => !document.querySelector('#view.is-loading'));
+  const adopted = await page.evaluate(() => window.__PREVIEW__.svc.events('grade9@fake').find((e) => e.id === 'old-g9-2@fake'));
+  check(adopted && /^Summative: Biology 9 Boys/.test(adopted.title), 'the old event is taken over and retitled');
+  check((await page.getByRole('button', { name: /From the old calendars/ }).innerText()).includes('1'), 'one old entry left to handle');
+
+  await page.locator('.cell__num', { hasText: /^27$/ }).first().click();
+  await page.waitForSelector('.drawer .card--tint');
+  check((await page.locator('.drawer').innerText()).includes('The busiest student has 2 summatives'), 'the day panel explains the load');
+  await page.keyboard.press('Escape');
+  check(await page.locator('.drawer').count() === 0, 'Escape closes panels');
+
+  const before = await page.locator('.chip[data-cat="FORMATIVE"]').count();
+  await page.getByRole('button', { name: 'Formatives' }).click();
+  check(before > 0 && await page.locator('.chip[data-cat="FORMATIVE"]').count() === 0, 'the formative filter hides formatives');
+  const meters = await page.locator('.cell .meter').count();
+  check(meters > 0, 'filters leave the load meters alone');
+  await page.getByRole('button', { name: 'Formatives' }).click();
+
+  await page.getByRole('button', { name: 'Week' }).click();
+  await page.waitForSelector('#view .week');
+  await page.locator('.week td.slot').nth(12).click();
+  await page.waitForSelector('.drawer .rows');
+  check(await page.locator('.drawer .pchip[aria-pressed="true"]').count() <= 1, 'clicking a period slot presets that period');
+  await page.keyboard.press('Escape');
+  await ctx.close();
+}
+
 // 6. SLT requests
 {
   const { ctx, page } = await open('?as=slt&date=2026-10-27');
