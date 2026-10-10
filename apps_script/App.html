@@ -386,7 +386,6 @@
     var title = document.querySelector('.header__title');
     clear(title);
     append(title, [b.settings.appTitle, b.settings.divisionLabel ? h('small', { text: b.settings.divisionLabel }) : null]);
-    document.title = b.settings.appTitle;
     var right = clear($('header-right'));
     if (isSlt()) {
       right.appendChild(h('button', { class: 'btn', type: 'button', onclick: function (ev) { openRequests(ev.currentTarget); } },
@@ -396,7 +395,7 @@
       right.appendChild(h('button', { class: 'btn', type: 'button', onclick: function (ev) { openImports(ev.currentTarget); } },
         ['From the old calendars', h('span', { class: 'count', text: b.counts.imports })]));
     }
-    right.appendChild(h('button', { class: 'btn', type: 'button', onclick: function () { window.print(); } }, 'Print'));
+    right.appendChild(h('button', { class: 'btn btn--print', type: 'button', onclick: function () { window.print(); } }, 'Print'));
     var role = { ADMIN: 'Admin', SLT: 'SLT', TEACHER: 'Teacher', VIEWER: 'Staff', STUDENT: 'Student' }[user().role] || user().role;
     right.appendChild(h('div', { class: 'who' }, [
       h('b', { text: user().name || user().email }),
@@ -958,16 +957,26 @@
         });
       };
     }
-    if (e.canEdit) {
-      dr.foot.appendChild(h('button', { class: 'btn btn--danger', type: 'button', onclick: act(function () {
-        if (!window.confirm('Delete "' + e.title + '"? It is removed from the grade calendar too.')) return Promise.resolve();
+    function confirmDelete() {
+      var actions = Array.prototype.slice.call(dr.foot.childNodes);
+      clear(dr.foot);
+      var yes = h('button', { class: 'btn btn--danger', type: 'button', onclick: act(function () {
         return call('apiDelete', { id: e.id }).then(function (res) {
           if (!res.ok) { toast(res.error.message); return; }
           closeDrawer();
           toast('Deleted.', 'ok');
           refresh();
         });
-      }) }, 'Delete'));
+      }) }, 'Delete it');
+      append(dr.foot, [
+        h('span', { class: 'note', text: 'Delete "' + e.title + '"? It is removed from the grade calendar too.' }),
+        h('button', { class: 'btn', type: 'button', onclick: function () { clear(dr.foot); append(dr.foot, actions); } }, 'Keep it'),
+        yes
+      ]);
+      yes.focus();
+    }
+    if (e.canEdit) {
+      dr.foot.appendChild(h('button', { class: 'btn btn--danger', type: 'button', onclick: confirmDelete }, 'Delete'));
       if (e.status === 'ACTIVE') {
         dr.foot.appendChild(h('button', { class: 'btn', type: 'button', onclick: act(function () {
           return call('apiUpdate', { id: e.id, patch: { announced: !e.announced } }).then(function (res) {
@@ -1547,8 +1556,9 @@
 
     var mq = window.matchMedia ? window.matchMedia('(max-width: 759px)') : null;
     S.narrow = !!(mq && mq.matches);
-    if (mq) {
-      var onChange = function () { S.narrow = mq.matches; renderView(); };
+    if (mq && !mqBound) {
+      mqBound = true;
+      var onChange = function () { S.narrow = mq.matches; if (S.boot) renderView(); };
       if (mq.addEventListener) mq.addEventListener('change', onChange); else if (mq.addListener) mq.addListener(onChange);
     }
 
@@ -1582,7 +1592,27 @@
     call('apiBootstrap').then(function (res) { start(res, params); });
   }
 
-  window.AC = { boot: boot, state: S };
+  var mqBound = false;
+
+  /** Starts again from the server's bootstrap, e.g. after the preview switches who is signed in. */
+  function restart() {
+    closeDrawer();
+    clear($('toasts'));
+    S.boot = null;
+    S.cache = {};
+    S.current = null;
+    S.currentKey = '';
+    S.byDate = {};
+    S.loading = '';
+    S.error = null;
+    S.sections = {};
+    S.cats = {};
+    S.filters = { SUMMATIVE: true, EXAM: true, FORMATIVE: true, dept: '', q: '' };
+    clear($('view'));
+    boot();
+  }
+
+  window.AC = { boot: boot, restart: restart, state: S };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();

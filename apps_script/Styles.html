@@ -247,6 +247,7 @@ a { color: var(--aisa-purple); }
 .drawer {
   position: fixed; inset: 0; z-index: 60; background: var(--aisa-white); display: flex; flex-direction: column;
   box-shadow: var(--shadow-2);
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 .drawer__head { display: flex; align-items: flex-start; gap: 12px; padding: 14px var(--gutter); border-bottom: 1px solid var(--aisa-purple-tint); }
 .drawer__title { margin: 2px 0 0; font-size: 20px; color: var(--aisa-purple); line-height: 1.25; }
@@ -309,7 +310,7 @@ details summary { cursor: pointer; color: var(--aisa-purple); font-weight: 500; 
 .error-text { color: var(--alert); font-size: 14px; font-weight: 500; }
 
 /* ---------- toasts ---------- */
-.toasts { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: 8px; width: min(92vw, 460px); }
+.toasts { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: 8px; width: min(92vw, 460px); }
 .toast { background: var(--aisa-near-black); color: var(--aisa-white); padding: 12px 14px; border-radius: var(--aisa-radius); box-shadow: var(--shadow-2); font-size: 14px; display: flex; gap: 10px; align-items: center; }
 .toast--ok { border-left: 4px solid var(--aisa-gold); }
 

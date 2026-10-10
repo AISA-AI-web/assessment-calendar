@@ -108,7 +108,6 @@ async function shot(page, name, full) {
 // 5c. Teacher: book, edit, delete; claim an old entry; day panel; filters; week slot
 {
   const { ctx, page } = await open('?as=teacher&date=2026-10-27');
-  page.on('dialog', (d) => d.accept());
 
   await page.getByRole('button', { name: '+ Add assessment' }).click();
   await page.locator('#f-title').fill('E2E quiz');
@@ -131,7 +130,9 @@ async function shot(page, name, full) {
   check(true, 'an entry can be edited');
   await page.waitForFunction(() => !document.querySelector('#view.is-loading'));
   await page.locator('.chip', { hasText: 'E2E quiz (renamed)' }).first().click();
-  await page.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  check(await page.getByRole('button', { name: 'Keep it' }).count() === 1, 'deleting asks for confirmation in the panel');
+  await page.getByRole('button', { name: 'Delete it' }).click();
   await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('Deleted.')));
   const gone = await page.evaluate(() => !window.__PREVIEW__.svc.events('grade9@fake').some((e) => /E2E quiz/.test(e.title)));
   check(gone, 'deleting removes the grade calendar copy');
@@ -203,6 +204,42 @@ async function shot(page, name, full) {
   check(await page.locator('#view .agenda').count() === 1, 'phones get the agenda');
   await shot(page, '7-teacher-phone');
   await ctx.close();
+}
+
+// 9. Switching role in the page, without reloading
+{
+  const { ctx, page } = await open('?as=teacher&date=2026-10-27');
+  await page.locator('#preview-bar').getByRole('button', { name: 'SLT', exact: true }).click();
+  await page.waitForSelector('.header .who .role:text-is("SLT")');
+  check(await page.getByRole('button', { name: /Requests/ }).count() === 1, 'the demo bar switches to SLT in place');
+  await page.locator('#preview-bar').getByRole('button', { name: 'Student (Grade 9)' }).click();
+  await page.waitForSelector('.scope-me');
+  check(await page.getByRole('button', { name: '+ Add assessment' }).count() === 0, 'and to the student');
+  await ctx.close();
+}
+
+// 10. The hosted-viewer copy, wrapped the way the host wraps it
+{
+  const { readFileSync, writeFileSync } = await import('node:fs');
+  const wrapped = join(root, 'preview/dist/artifact-wrapped.html');
+  writeFileSync(wrapped, '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body>' +
+    readFileSync(join(root, 'preview/dist/artifact.html'), 'utf8') + '</body></html>');
+  for (const vp of [{ width: 1280, height: 900 }, { width: 400, height: 860 }]) {
+    const ctx = await browser.newContext({ viewport: vp });
+    const page = await ctx.newPage();
+    page.on('console', (m) => { if (m.type() === 'error') errors.push('artifact ' + vp.width + ': ' + m.text()); });
+    page.on('pageerror', (e) => errors.push('artifact ' + vp.width + ': ' + e.message));
+    await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+    await page.goto(pathToFileURL(wrapped).href + '#slt');
+    await page.waitForSelector('#view .month, #view .agenda', { timeout: 15000 });
+    check(await page.title() === 'Assessment Calendar Preview', 'hosted copy has its title (' + vp.width + 'px)');
+    check(await page.locator('.btn--print').isHidden(), 'hosted copy hides Print (' + vp.width + 'px)');
+    check((await page.locator('.header .who .role').innerText()) === 'SLT', 'a #slt link opens as SLT (' + vp.width + 'px)');
+    const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    check(wide <= 0, 'no sideways scrolling at ' + vp.width + 'px');
+    await shot(page, 'artifact-' + vp.width, false);
+    await ctx.close();
+  }
 }
 
 await browser.close();
