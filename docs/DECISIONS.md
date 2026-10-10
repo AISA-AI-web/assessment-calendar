@@ -26,7 +26,7 @@ open. Update it whenever a decision changes, so this context is not lost again.
 | 6 | Formatives | Allowed. Shown in a lighter style and never counted. |
 | 7 | Audience | Staff (read/write by role) and students (read-only). Students are on AISA Google accounts. |
 | 8 | Student visibility | An entry is staff-only until its teacher ticks "Announced to students". |
-| 9 | Grade calendars | Import the existing entries once (each creator claims theirs), then mirror every entry one-way to the matching grade calendar. Believed staff-only, so unannounced entries are mirrored too (`mirror_unannounced = TRUE`); **confirm with Savvas**. |
+| 9 | Grade calendars | Import the existing entries once (each creator claims theirs), then mirror every entry one-way to the matching grade calendar. Believed staff-only, so unannounced entries are mirrored too (`mirror_unannounced = TRUE`); **confirm with the SLT member who owns the grade calendars**. |
 | 10 | Internal Calendar | Read-only overlay from "AISA (Internal Calendar)", synced hourly. |
 
 ## How it works now (built)

@@ -60,7 +60,7 @@ Set up creates the tabs and fills in default settings. It also adds the Calendar
 | `internal_calendar_id` | Only if Set up did not find it. |
 | `support_email` | Who people should contact, e.g. the T&L inbox. |
 | `slt_notify_emails` | Optional. Who gets "approval needed" emails. If blank, everyone with role SLT gets them. |
-| `mirror_unannounced` | `TRUE` if only staff can see the grade calendars. `FALSE` if students or parents can, so that unannounced entries stay off them. **Check this with Savvas.** |
+| `mirror_unannounced` | `TRUE` if only staff can see the grade calendars. `FALSE` if students or parents can, so that unannounced entries stay off them. **Check this with the SLT member who owns the grade calendars.** |
 
 The other settings (year and semester dates, the limit of 2, `BLOCK`) are
 already set for 2026–27.
@@ -149,7 +149,7 @@ a read-only copy, and anything typed straight into them is not counted.
 ## Pilot checklist (staff PD day, 20 October)
 
 - [ ] IT has the export request (mid-term break is 12–16 Oct)
-- [ ] Settings: seven grade calendar IDs, `support_email`, `mirror_unannounced` confirmed with Savvas
+- [ ] Settings: seven grade calendar IDs, `support_email`, `mirror_unannounced` confirmed with the grade calendars' owner
 - [ ] Staff tab: SLT and admins
 - [ ] Internal Calendar synced and InternalEvents checked
 - [ ] PowerSchool import processed with no errors in the report
