@@ -11,8 +11,9 @@ summatives per student per day**.
   accounts only.
 - **Reads the AISA Internal Calendar:** rotation days (Day 1–10), holidays,
   testing weeks and school events.
-- **Counts load per student** from a PowerSchool enrolment export, so a girls'
-  test never blocks the boys' class, and electives are counted properly.
+- **Counts load per student** from the school's class roster (who is in which
+  class), so a girls' test never blocks the boys' class, and electives are
+  counted properly.
 - **Mirrors every entry to the grade assessment calendars**, so existing
   subscribers keep seeing them.
 - **Students see their own announced assessments**, read-only.
@@ -20,7 +21,7 @@ summatives per student per day**.
 | Doc | For |
 |---|---|
 | [docs/SETUP.md](docs/SETUP.md) | Installing, configuring, deploying, pilot checklist |
-| [docs/POWERSCHOOL_EXPORT.md](docs/POWERSCHOOL_EXPORT.md) | What to ask IT for (forwardable) |
+| [docs/POWERSCHOOL_EXPORT.md](docs/POWERSCHOOL_EXPORT.md) | The roster and PowerSchool formats the app reads (forwardable to IT) |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | What was decided, and what is still open |
 
 ## Try it without Google
@@ -44,7 +45,7 @@ apps_script/   everything that runs in Google (pushed with clasp)
   Rules.gs       per-student load and the booking rules
   Days.gs        Internal Calendar sync, rotation days, bell times
   Directory.gs   roles, classes, enrolments
-  Import.gs      PowerSchool CSV import
+  Import.gs      class roster / PowerSchool import
   Mirror.gs      copies to the grade calendars; old-entry import
   Store.gs       the Sheet as tables      Svc.gs  other Google services
   Index.html, Styles.html, App.html   the page

@@ -1,5 +1,14 @@
 # PowerSchool export for the Assessment Calendar
 
+> **The school's class roster export also works.** That's one sheet with one
+> row per student per class per teacher: Class Name, Course Number, teacher
+> Email Address, Instructor First/Last Name, Student ID, Student Grade,
+> Student Email. See [SETUP.md](SETUP.md), step 5. Two things make it better:
+> the **Student Email** column must hold real addresses (in the copy we
+> received it was a formula showing `#NAME?`), and adding PowerSchool's
+> **Expression** and **Term** columns switches on next-lesson suggestions.
+> The two files below are the alternative.
+
 The Assessment Calendar checks that no student gets more than two summatives on
 the same day. To do that it needs to know which students are in which classes.
 It gets this from two CSV exports from PowerSchool, described below.
@@ -65,7 +74,7 @@ Please leave out dropped enrolments. In `CC` these have a negative
 ## What happens to the data
 
 The admin imports both files into the calendar's private Sheet and runs
-**Assessment Calendar → Process PowerSchool import**. This checks the files
+**Assessment Calendar → 3. Check the class roster** and then **4. Load the class roster**. This checks the files
 (unknown sections, missing emails, duplicates), reports any problems and
 replaces the previous import. Teachers never see enrolment lists. When a
 booking would give some students a third summative that day, the app tells

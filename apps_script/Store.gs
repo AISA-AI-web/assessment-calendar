@@ -18,7 +18,8 @@ var Store = (function () {
     Settings: ['key', 'value', 'notes'],
     Staff: ['email', 'name', 'role', 'notes'],
     Sections: ['section_id', 'course_number', 'course_name', 'section_number', 'teacher_emails',
-      'teacher_names', 'expression', 'term', 'department', 'grades', 'student_count'],
+      'teacher_names', 'expression', 'term', 'department', 'grades', 'student_count', 'status'],
+    CourseNames: ['course_number', 'course_name'],
     Enrolments: ['student_number', 'student_email', 'grade', 'section_id', 'date_enrolled', 'date_left'],
     Assessments: ['id', 'group_id', 'status', 'category', 'format', 'title', 'notes', 'section_id',
       'grade', 'date', 'periods', 'announced', 'teacher_email', 'created_by', 'created_at',
@@ -32,6 +33,7 @@ var Store = (function () {
       'end_time', 'all_day', 'creator_email', 'guess_category', 'status', 'assessment_ids',
       'handled_by', 'handled_at'],
     Log: ['at', 'user', 'action', 'ref', 'details'],
+    Roster: [],
     PS_Sections: [],
     PS_Enrolments: []
   };

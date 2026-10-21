@@ -38,6 +38,8 @@ var Config = (function () {
     ['support_email', '', 'Shown to anyone who needs help or access.'],
     ['slt_notify_emails', '', 'Emailed about override requests. Blank = everyone with role SLT in the Staff tab.'],
     ['day_letter_map', '', 'Only if PowerSchool expressions use letters for cycle days, e.g. A=1,B=2,C=3.'],
+    ['student_email_pattern', '', 'Used when the roster has no usable student email, e.g. {id}@aisa.sch.ae. Tokens: {id}, {first}, {last}.'],
+    ['roster_skip_courses', '^[A-Z]?HR\\d*$', 'Course numbers the roster import leaves out (a regular expression). Default: homerooms such as HHR.'],
     ['import_from', '', 'Import old grade-calendar events dated from this day (yyyy-mm-dd). Blank = today.'],
     ['app_url', '', 'The web app URL, used in emails and calendar descriptions. Blank = detect automatically.']
   ];
@@ -89,6 +91,10 @@ var Config = (function () {
 
   function date(v, fallback) { return U.normDate(v) || fallback; }
 
+  function safeRegex(p) {
+    try { return p ? new RegExp(U.clean(p), 'i') : null; } catch (e) { return null; }
+  }
+
   function defaultOf(key) {
     for (var i = 0; i < DEFAULTS.length; i++) if (DEFAULTS[i][0] === key) return DEFAULTS[i][1];
     return '';
@@ -117,6 +123,8 @@ var Config = (function () {
       supportEmail: U.normEmail(raw.support_email),
       sltNotifyEmails: U.splitList(raw.slt_notify_emails).map(U.normEmail),
       dayLetterMap: parseLetterMap(raw.day_letter_map),
+      studentEmailPattern: U.clean(raw.student_email_pattern),
+      rosterSkip: safeRegex(raw.roster_skip_courses),
       importFrom: U.normDate(raw.import_from),
       appUrl: U.clean(raw.app_url),
       counted: COUNTED.slice(),

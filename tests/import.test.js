@@ -87,7 +87,11 @@ test('a processed import replaces the live tables and resets the directory', () 
     [['7001', 's7001@school.example', '7', '7001'], ['7002', 's7002@school.example', '7', '7001']]);
   const r = g.PsImport.process();
   assert.deepEqual(r.errors, []);
-  assert.equal(t.backend.objects('Sections').length, 1);
+  const sections = t.backend.objects('Sections');
+  assert.deepEqual(sections.filter((x) => x.status !== 'RETIRED').map((x) => x.section_id), ['7001']);
+  // Old classes that have bookings stay, retired, so their entries keep their names.
+  assert.equal(sections.filter((x) => x.status === 'RETIRED').length, r.retired.length);
+  assert.ok(r.retired.length > 0);
   assert.equal(g.Dir.userFor('new.teacher@school.example').role, 'TEACHER');
   assert.equal(g.Dir.userFor('s7002@school.example').role, 'STUDENT');
   assert.equal(g.Dir.studentsInSection('7001', '2026-10-21').length, 2);

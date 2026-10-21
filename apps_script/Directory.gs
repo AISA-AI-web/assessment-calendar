@@ -29,6 +29,14 @@ var Dir = (function () {
       staff[email] = { email: email, name: U.clean(r.name), role: role };
     });
 
+    // Friendly course names an admin typed into the CourseNames tab apply straight away.
+    var courseNames = {};
+    Store.all('CourseNames').forEach(function (c) {
+      var code = U.clean(c.course_number).toUpperCase();
+      var name = U.clean(c.course_name);
+      if (code && name) courseNames[code] = name;
+    });
+
     var names = {};
     var sections = {};
     var byTeacher = {};
@@ -40,10 +48,13 @@ var Dir = (function () {
       teachers.forEach(function (t, i) { if (tnames[i] && !names[t]) names[t] = tnames[i]; });
       var term = U.clean(r.term);
       var tr = termRange(term, s);
+      var courseNumber = U.clean(r.course_number);
+      var retired = U.clean(r.status).toUpperCase() === 'RETIRED';
       sections[id] = {
         id: id,
-        courseNumber: U.clean(r.course_number),
-        courseName: U.clean(r.course_name) || U.clean(r.course_number),
+        courseNumber: courseNumber,
+        courseName: courseNames[courseNumber.toUpperCase()] || U.clean(r.course_name) || courseNumber,
+        retired: retired,
         sectionNumber: U.clean(r.section_number),
         teachers: teachers,
         expression: U.clean(r.expression),
@@ -54,7 +65,8 @@ var Dir = (function () {
         department: U.clean(r.department),
         grades: U.splitList(r.grades).map(U.normGrade)
       };
-      teachers.forEach(function (t) { (byTeacher[t] = byTeacher[t] || []).push(id); });
+      // A retired class keeps its name for old bookings but leaves teachers' class lists.
+      if (!retired) teachers.forEach(function (t) { (byTeacher[t] = byTeacher[t] || []).push(id); });
     });
 
     var students = {};
@@ -209,11 +221,17 @@ var Dir = (function () {
     return !!st && st.sections.some(function (x) { return x.id === sectionId && covers(x, date); });
   }
 
-  /** 'Visual Arts 9 (G09ART.1)' */
+  /**
+   * 'Visual Arts 9 (G09ART.1)' for PowerSchool sections; for roster classes the
+   * class code, e.g. 'IB1ENGSL1', or 'English A SL (IB1ENGSL1)' once the course
+   * has a friendly name in the CourseNames tab.
+   */
   function label(sec) {
     if (!sec) return '';
-    var code = sec.courseNumber + (sec.sectionNumber ? '.' + sec.sectionNumber : '');
-    return code && code !== sec.courseName ? sec.courseName + ' (' + code + ')' : sec.courseName;
+    var code = sec.sectionNumber ? sec.courseNumber + '.' + sec.sectionNumber : (/^\d+$/.test(sec.id) ? sec.courseNumber : sec.id);
+    if (!code || code === sec.courseName) return sec.courseName;
+    if (sec.courseName === sec.courseNumber) return code;
+    return sec.courseName + ' (' + code + ')';
   }
 
   function teacherName(email) {

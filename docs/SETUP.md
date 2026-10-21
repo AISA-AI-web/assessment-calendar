@@ -60,6 +60,8 @@ Set up creates the tabs and fills in default settings. It also adds the Calendar
 | `internal_calendar_id` | Only if Set up did not find it. |
 | `support_email` | Who people should contact, e.g. the T&L inbox. |
 | `slt_notify_emails` | Optional. Who gets "approval needed" emails. If blank, everyone with role SLT gets them. |
+| `student_email_pattern` | Only if the roster's student emails are missing: how to build them, e.g. `{id}@aisa.sch.ae`. |
+| `roster_skip_courses` | Course numbers the roster import leaves out (default: homerooms like `HHR`). |
 | `mirror_unannounced` | `TRUE` if only staff can see the grade calendars. `FALSE` if students or parents can, so that unannounced entries stay off them. **Check this with the SLT member who owns the grade calendars.** |
 
 The other settings (year and semester dates, the limit of 2, `BLOCK`) are
@@ -107,19 +109,57 @@ Things to check before the pilot:
   they are, weekdays without a rotation day show "No rotation day listed" and
   teachers get a warning. Ask the calendar owner to add them.
 
-## 5. Import PowerSchool
+## 5. Load the class roster
 
-When IT sends `sections.csv` and `enrolments.csv` (see
-[POWERSCHOOL_EXPORT.md](POWERSCHOOL_EXPORT.md)):
+The app needs to know which students are in which class. It reads this from
+the school's **class roster**: one row per student per class per teacher, with
+the columns Class Name, Course Number, Email Address (or User Name) and
+Instructor First/Last Name for the teacher, Student ID, Student Grade, and
+Student Email. Other columns are ignored. Student names and genders are never
+read or stored.
 
-1. Open the **PS_Sections** tab → **File → Import → Upload** → choose
-   `sections.csv` → Import location **Replace current sheet** → **untick
-   "Convert text to numbers, dates, and formulas"** → Import.
-2. Do the same with `enrolments.csv` into **PS_Enrolments**.
-3. Choose **3. Process PowerSchool import** and read the report. Nothing
-   changes if a required column is missing.
+1. **Save the roster as CSV.** In Excel: **File → Save As → CSV UTF-8**. Only
+   the open worksheet is saved, so open the roster sheet first. If the roster
+   is a Google Sheet, you can instead copy every cell and paste it into the
+   **Roster** tab with **Paste special → Values only**, then skip step 2.
+2. **Import it into the Roster tab.** Open the **Roster** tab → **File →
+   Import → Upload** → choose the CSV → Import location **Replace current
+   sheet** → **untick "Convert text to numbers, dates, and formulas"** →
+   Import data.
+3. **Check it.** Choose **3. Check the class roster (changes nothing)**. The
+   report says how many classes, students and teachers it found. It also lists
+   what it skipped (other grades, homerooms) and any problems.
+4. **Fix what the report flags**, then check again:
+   - *Students have no usable email.* Students sign in with their school
+     account, so the app needs each student's email. If the Student Email
+     column shows `#NAME?`, it holds a formula Excel could not work out. Copy
+     that column as values from the original file, or set Settings →
+     `student_email_pattern` (for example `{id}@aisa.sch.ae`, where `{id}` is
+     the Student ID).
+   - *Homerooms or other non-teaching classes appear.* Settings →
+     `roster_skip_courses` lists the course numbers to leave out, as a
+     regular expression. The default skips homerooms such as `HHR`.
+5. **Load it.** Choose **4. Load the class roster**. This replaces the
+   previous roster.
+6. **Optional:** the **CourseNames** tab now lists every course number. Type a
+   friendly name next to any code (`IB1ENGS` → `English A SL`) and the app
+   uses it straight away.
 
-Repeat this whenever timetables change, at the very least for Semester 2.
+Load the roster again whenever classes change: at least before Semester 2, and
+after any big add/drop. A class that has bookings but is missing from the new
+roster is kept, marked `RETIRED` in the Sections tab, so its entries still
+show. Its students no longer count toward the limit, so if a class was only
+renamed, move its bookings to the new class.
+
+The roster has no meeting times, so the app cannot suggest a class's next
+lessons or warn when it does not meet on a given day. The 2-per-day check does
+not need them. If IT can add PowerSchool's `Expression` and `Term` columns to
+the roster, those features switch on.
+
+*Two PowerSchool files instead?* Import `sections.csv` into **PS_Sections** and
+`enrolments.csv` into **PS_Enrolments** the same way (see
+[POWERSCHOOL_EXPORT.md](POWERSCHOOL_EXPORT.md)), leave the Roster tab empty,
+and use steps 3 and 4.
 
 ## 6. Deploy the web app
 
@@ -135,7 +175,7 @@ the same.
 
 ## 7. Bring in the old grade-calendar entries
 
-Choose **4. Import entries from the grade calendars**. Every event dated from
+Choose **5. Import entries from the grade calendars**. Every event dated from
 today (or from Settings → `import_from`) is queued. Each teacher sees their
 own under **From the old calendars** in the app. They either add one properly
 (the old event is then replaced by the standard one) or mark it "not an
@@ -152,7 +192,7 @@ a read-only copy, and anything typed straight into them is not counted.
 - [ ] Settings: seven grade calendar IDs, `support_email`, `mirror_unannounced` confirmed with the grade calendars' owner
 - [ ] Staff tab: SLT and admins
 - [ ] Internal Calendar synced and InternalEvents checked
-- [ ] PowerSchool import processed with no errors in the report
+- [ ] Class roster checked (step 3) and loaded (step 4), with student emails present
 - [ ] Old grade-calendar entries queued (step 7)
 - [ ] Web app deployed; tried with one teacher account and one student account
 - [ ] Teachers told: book here first, then tell students, then tick "Announced to students"
@@ -164,7 +204,8 @@ a read-only copy, and anything typed straight into them is not counted.
 | "Your account does not have access" | The person is not in the Staff tab, not a section teacher and not an enrolled student. Add them to Staff. |
 | Entry shows "Grade calendar: ERROR …" | The deploying account cannot edit that calendar, or the ID is wrong. Fix it; failed copies are retried every hour. |
 | A day shows the wrong rotation day | The Internal Calendar has it wrong. Fix it there; the app follows within the hour, or straight away with menu step 2. |
-| A teacher cannot see their class | They are not the section teacher in PowerSchool. Ask IT, or set `teachers_book_any_section` to `TRUE` for the pilot. |
+| A teacher cannot see their class | The roster does not list them as its teacher, or lists an email that is not the one they sign in with. Fix the roster and load it again, or set `teachers_book_any_section` to `TRUE` for now. |
+| A student gets "no access" | The roster has no usable email for them. See step 5. |
 
 ## For developers
 

@@ -68,7 +68,7 @@ var Api = (function () {
     var d = Dir.load();
     var staff = isStaff(u);
     var slt = u.role === 'SLT' || u.role === 'ADMIN';
-    var ids = staff ? Object.keys(d.sections) : u.sectionIds;
+    var ids = staff ? Object.keys(d.sections).filter(function (id) { return !d.sections[id].retired; }) : u.sectionIds;
     var sections = ids.map(function (id) { return d.sections[id]; }).filter(Boolean)
       .map(function (sec) { return projectSection(sec, u); })
       .sort(function (a, b) {

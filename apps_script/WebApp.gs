@@ -163,8 +163,9 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Assessment Calendar')
     .addItem('1. Set up or repair this Sheet', 'menuSetup')
     .addItem('2. Sync the Internal Calendar now', 'menuSyncInternal')
-    .addItem('3. Process PowerSchool import', 'menuProcessImport')
-    .addItem('4. Import entries from the grade calendars', 'menuImportGradeCalendars')
+    .addItem('3. Check the class roster (changes nothing)', 'menuCheckRoster')
+    .addItem('4. Load the class roster', 'menuProcessImport')
+    .addItem('5. Import entries from the grade calendars', 'menuImportGradeCalendars')
     .addSeparator()
     .addItem('Re-copy every entry to the grade calendars', 'menuResyncMirror')
     .addItem('Open the web app', 'menuOpenApp')
@@ -208,9 +209,16 @@ function menuSyncInternal() {
   });
 }
 
+function menuCheckRoster() {
+  requireAdminCaller_();
+  guarded_('Class roster check', function () {
+    return 'Nothing has been changed.\n\n' + PsImport.describe(PsImport.process({ dryRun: true }));
+  });
+}
+
 function menuProcessImport() {
   requireAdminCaller_();
-  guarded_('PowerSchool import', function () { return PsImport.describe(PsImport.process()); });
+  guarded_('Class roster', function () { return PsImport.describe(PsImport.process()); });
 }
 
 function menuImportGradeCalendars() {

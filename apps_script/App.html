@@ -475,11 +475,13 @@
     var mine = S.boot.sections.filter(function (s) { return s.mine; });
     if (mine.length) {
       var my = h('div', { class: 'scope-row', role: 'group', 'aria-label': 'My classes' }, [h('span', { class: 'scope-label', text: 'My classes' })]);
+      var sameName = {};
+      mine.forEach(function (s) { sameName[s.courseName] = (sameName[s.courseName] || 0) + 1; });
       mine.forEach(function (s) {
         my.appendChild(h('button', {
           class: 'pill pill--mine', type: 'button', 'aria-pressed': S.scope === 'section:' + s.id ? 'true' : 'false',
           title: s.label, onclick: function () { setScope('section:' + s.id); }
-        }, s.courseName));
+        }, sameName[s.courseName] > 1 ? s.label : s.courseName));
       });
       bar.appendChild(my);
     }
@@ -1170,11 +1172,11 @@
         }
         (byGrade[g] || []).forEach(function (s) {
           var k = sectionKey(s);
-          var meets = s.meetings && s.meetings.length ? describeMeetings(s.meetings) : 'Meeting times not in the export';
+          var meets = s.meetings && s.meetings.length ? describeMeetings(s.meetings) + ' · ' : '';
           box.appendChild(h('label', { class: 'check' }, [
             h('input', { type: 'checkbox', checked: B.keys.indexOf(k) >= 0, onchange: function (ev) { toggleKey(k, ev.target.checked); } }),
             h('span', null, [s.label + (s.mine ? '' : ' · ' + s.teachers.map(function (t) { return t.name; }).join(', ')),
-              h('small', { text: meets + ' · ' + plural(s.students, 'student') })])
+              h('small', { text: meets + plural(s.students, 'student') })])
           ]));
         });
       });
