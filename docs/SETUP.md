@@ -20,22 +20,42 @@ Teaching & Learning.
 
 1. Create a new Google Sheet called **AISA Assessment Calendar (6–12)**.
 2. **Extensions → Apps Script**. Name the project the same way.
-3. In the Apps Script editor, open **Project Settings** (the gear icon) and
-   copy the **Script ID**.
+3. Copy the project's **Script ID**. In the editor's address bar it is the
+   long code between `projects/` and `/edit`, and it starts with `1`. It is
+   also under **Project Settings** (the gear icon) → IDs. It is not the
+   `AKfycb…` code in a web app link, which is a deployment ID.
 4. Turn on the Apps Script API for your account at
    <https://script.google.com/home/usersettings>.
-5. On a computer with Node.js, run:
+5. On a computer with Node.js 20 or later, install clasp (skip this if
+   `clasp --version` already shows 3.x):
 
    ```sh
-   npm install -g @google/clasp@2.4.2
+   npm install -g @google/clasp@3.4.1
+   ```
+
+   Then paste the lines below into Terminal, with your Script ID in place of
+   `PASTE_SCRIPT_ID_HERE`. When `clasp login` opens a browser, pick the
+   account from above.
+
+   ```sh
+   cd ~
    git clone https://github.com/AISA-AI-web/assessment-calendar.git
-   cd assessment-calendar
-   clasp login                                  # sign in with the account from above
-   clasp clone <SCRIPT_ID> --rootDir apps_script
-   git checkout -- apps_script                  # clone overwrote files with the project's copies
-   rm -f apps_script/*.js                       # clone saves scripts as .js; the repo uses .gs
+   cd ~/assessment-calendar
+   clasp login
+   clasp clone PASTE_SCRIPT_ID_HERE --rootDir apps_script
+   git checkout -- apps_script
+   find apps_script -name '*.js' -delete
    clasp push --force
    ```
+
+   This creates an `assessment-calendar` folder in your home folder and links
+   it to the project. `clasp clone` overwrites the repo's files with the
+   project's copies and saves scripts as `.js`. The two lines after it restore
+   the repo's files and delete those copies, because the repo uses `.gs`.
+   You do this once per computer.
+
+   Don't add `# comments` to commands you paste. On a Mac, Terminal passes
+   them on as part of the command.
 
    No Node.js? In the Apps Script editor, tick **Project Settings → Show
    "appsscript.json"**. Then, for every file in `apps_script/`, create a file
@@ -173,20 +193,22 @@ and run step 3.
 3. Deploy, then copy the URL ending in `/exec` into Settings → `app_url`
    (emails and calendar entries link to it).
 
-To publish a code change later, run this in the folder you cloned. The URL
-stays the same:
+To publish a code change later, run the lines below on the computer from
+step 1. Put the deployment ID in place of `PASTE_DEPLOYMENT_ID_HERE`. That is
+the long code in the `/exec` link, between `/s/` and `/exec`, starting
+`AKfycb` (`clasp deployments` lists it too). The link stays the same.
 
 ```sh
+cd ~/assessment-calendar
 git pull
-rm -f apps_script/*.js
+find apps_script -name '*.js' -delete
 clasp push --force
-clasp deployments                                   # the ID is the long code in the /exec link
-clasp deploy --deploymentId <DEPLOYMENT_ID> --description "what changed"
+clasp deploy --deploymentId PASTE_DEPLOYMENT_ID_HERE --description "what changed"
 ```
 
 Then reload the Sheet so its menu picks up any changes. Instead of the last
-two commands you can use the Apps Script editor: **Deploy → Manage
-deployments → Edit → Version: New version → Deploy**.
+command you can use the Apps Script editor: **Deploy → Manage deployments →
+Edit → Version: New version → Deploy**.
 
 ## 7. Bring in the old grade-calendar entries
 
@@ -228,6 +250,17 @@ a read-only copy, and anything typed straight into them is not counted.
 After changing code, the /exec link keeps running the old version until you
 publish a **New version** (above).
 
+### Terminal messages
+
+| What Terminal says | Fix |
+|---|---|
+| `cd: no such file or directory: assessment-calendar` or `fatal: not a git repository` | This computer has no copy of the repo yet, or it is in another folder. Do step 1.5. |
+| `Project settings not found` (clasp 3) or `No valid .clasp.json project file` (clasp 2) | This folder isn't linked to the Apps Script project yet. Run the `clasp clone` line from step 1.5 in it, then the three lines after it. |
+| `Project file already exists` | It is already linked. Skip `clasp clone` and run `clasp push --force`. |
+| `User has not enabled the Apps Script API` | Turn it on at <https://script.google.com/home/usersettings>, wait a minute, then try again. |
+| `Invalid script ID`, "not found" or "permission" | Either the ID is wrong (use the one starting `1`, not `AKfycb…`), or clasp is signed in to another account. Run `clasp login` again and pick the account that owns the Sheet. |
+| `zsh: no matches found` | A `*` that matched no files. Use the `find` line above instead. |
+
 ### Other problems
 
 | Symptom | Fix |
@@ -240,11 +273,11 @@ publish a **New version** (above).
 
 ## For developers
 
-```sh
-npm test              # 44 tests: the real server code against an in-memory Sheet
-npm run preview       # builds preview/dist/index.html: the full app, no Google needed
-npm run screenshots   # drives the preview in Chromium and checks the main flows
-```
+- `npm test` runs 54 tests: the real server code against an in-memory Sheet.
+- `npm run preview` builds `preview/dist/index.html`, the full app with no
+  Google needed.
+- `npm run screenshots` drives the preview in Chromium and checks the main
+  flows.
 
 `apps_script/` is everything that runs in Google. `support/` holds the
 in-memory Sheet, fake Google services and the fictional school used by the
