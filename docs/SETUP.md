@@ -289,6 +289,7 @@ publish a **New version** (above).
 | A day shows the wrong rotation day | The Internal Calendar has it wrong. Fix it there; the app follows within the hour, or straight away with menu step 2. |
 | A teacher cannot see their class | The roster does not list them as its teacher, or lists an email that is not the one they sign in with. Fix the roster and load it again, or set `teachers_book_any_section` to `TRUE` for now. |
 | A student gets "no access" | The roster has no usable email for them. See step 5. |
+| Loading fails in a Sheet that held an earlier version of the calendar (tabs such as Config, Types or `_Lists`) | That version's Sections and Assessments tabs keep its dropdowns and protected ranges, and the app writes into tabs with those names. Rename them, e.g. to "Sections (earlier version)", and load again: the app makes fresh ones. |
 | "The data you entered in cell B2 violates the data validation rules" | A dropdown or table was added to one of the app's own tabs. Since 21 Oct the app removes such a rule from the cells it writes and carries on, so publish the latest code (step 6) and try again. If it still fails, the message names the tab: select the whole tab, then Data → Data validation → Remove all, or Format → Convert to range. |
 
 ## For developers
