@@ -194,6 +194,28 @@ var Store = (function () {
       return r;
     }
 
+    /**
+     * Writes values as text. A dropdown or other rule that someone added to one
+     * of the app's tabs (Sheets offers them, e.g. when turning a range into a
+     * table) rejects the write ("violates the data validation rules"), so the
+     * rule is taken off the cells being written and the write tried once more.
+     */
+    function put(sh, row, col, values) {
+      var r = textRange(sh, row, col, values.length, values[0].length);
+      try {
+        r.setValues(values);
+      } catch (e) {
+        try {
+          r.clearDataValidations();
+          r.setValues(values);
+        } catch (e2) {
+          throw U.err('SHEET', 'Could not write to the ' + sh.getName() + ' tab: ' + (e2.message || e2) + ' If that tab ' +
+            'has a dropdown or is a table, select the whole tab and choose Data → Data validation → Remove all, or ' +
+            'Format → Convert to range. Then try again.');
+        }
+      }
+    }
+
     return {
       read: function (name) {
         var sh = sheet(name, false);
@@ -210,17 +232,17 @@ var Store = (function () {
       },
       append: function (name, rows) {
         var sh = sheet(name, true);
-        textRange(sh, sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+        put(sh, sh.getLastRow() + 1, 1, rows);
       },
       write: function (name, index, values) {
         var sh = sheet(name, true);
-        textRange(sh, index + 2, 1, 1, values.length).setValues([values]);
+        put(sh, index + 2, 1, [values]);
       },
       replace: function (name, hdrs, rows) {
         var sh = sheet(name, true);
         sh.clearContents();
         var data = [hdrs].concat(rows);
-        textRange(sh, 1, 1, data.length, hdrs.length).setValues(data);
+        put(sh, 1, 1, data);
       },
       ensure: function (name, hdrs) {
         var sh = sheet(name, false);
@@ -236,7 +258,7 @@ var Store = (function () {
         if (missing.length) {
           var start = current.filter(function (h) { return h !== ''; }).length ? lastCol + 1 : 1;
           if (start === 1) missing = hdrs;
-          textRange(sh, 1, start, 1, missing.length).setValues([missing]);
+          put(sh, 1, start, [missing]);
         }
         sh.setFrozenRows(1);
         sh.getRange(1, 1, 1, sh.getLastColumn()).setFontWeight('bold');
