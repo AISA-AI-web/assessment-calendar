@@ -182,6 +182,7 @@ function cronHourly() {
   requireAdminCaller_();
   try { Days.sync(); } catch (e) { console.error('Internal Calendar sync failed: ' + (e.stack || e)); }
   try { Mirror.retryFailed(); } catch (e) { console.error('Mirror retry failed: ' + (e.stack || e)); }
+  try { Mirror.syncImports(); } catch (e) { console.error('Grade calendar import failed: ' + (e.stack || e)); }
 }
 
 function installTriggers_() {
@@ -274,10 +275,13 @@ function menuImportGradeCalendars() {
   guarded_('Grade calendars', function () {
     requireAdmin_();
     var r = Mirror.importExisting();
+    if (!r.events) return 'Nothing new on the grade calendars from ' + r.from + '.';
     var per = Object.keys(r.perGrade).map(function (g) { return 'Grade ' + g + ': ' + r.perGrade[g]; }).join(', ');
-    return r.added
-      ? 'Queued ' + r.added + ' events dated from ' + r.from + ' (' + per + '). Their creators will see them in the app under "From the old calendars".'
-      : 'Nothing new to import from ' + r.from + '.';
+    var lines = ['Added ' + r.events + ' assessments from the grade calendars to the app (' + per + ').'];
+    if (r.counted) lines.push(r.counted + ' are summatives matched to their classes, so they count toward the daily limit.');
+    if (r.unmatched) lines.push(r.unmatched + ' could not be matched to a class. They show on the calendar as "class not known" and do not count.');
+    lines.push('New events on the grade calendars are brought in every hour, and imported entries follow their event until someone edits them in the app.');
+    return lines.join('\n');
   });
 }
 

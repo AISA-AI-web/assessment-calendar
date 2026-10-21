@@ -82,10 +82,18 @@ async function shot(page, name, full) {
   check(await page.locator('.week td.none').count() === 3, 'Friday has no P5–P7');
   await shot(page, '3-teacher-week-class');
 
-  // 5. Old calendar entries
-  await page.getByRole('button', { name: /From the old calendars/ }).click();
-  await page.waitForSelector('.drawer .card');
-  await shot(page, '4-teacher-old-calendars', false);
+  // 5. What was already on the grade calendars is on the calendar too
+  await page.goto(page0 + '?as=teacher&view=week&date=2026-11-05&scope=grade:9');
+  await page.waitForSelector('#view .week');
+  await page.waitForFunction(() => !document.querySelector('#view.is-loading'));
+  const old = page.locator('.chip', { hasText: 'B9 Biology summative (cells)' });
+  check(await old.count() >= 1, 'assessments from the grade calendars are on the calendar');
+  check(await page.getByRole('button', { name: /From the old calendars/ }).count() === 0, 'nothing is left for teachers to claim');
+  await old.first().click();
+  await page.waitForSelector('.drawer');
+  check((await page.locator('.drawer').innerText()).includes('From the Grade 9 assessment calendar'), 'an imported entry says where it came from');
+  await shot(page, '4-teacher-imported-entry', false);
+  await page.keyboard.press('Escape');
 
   // The same browser tab carries on as SLT: the request just made is waiting.
   await page.goto(page0 + '?as=slt&date=2026-10-27&scope=grade:9');
@@ -105,7 +113,7 @@ async function shot(page, name, full) {
   await ctx.close();
 }
 
-// 5c. Teacher: book, edit, delete; claim an old entry; day panel; filters; week slot
+// 5c. Teacher: book, edit, delete; change an imported entry; day panel; filters; week slot
 {
   const { ctx, page } = await open('?as=teacher&date=2026-10-27');
 
@@ -137,22 +145,26 @@ async function shot(page, name, full) {
   const gone = await page.evaluate(() => !window.__PREVIEW__.svc.events('grade9@fake').some((e) => /E2E quiz/.test(e.title)));
   check(gone, 'deleting removes the grade calendar copy');
 
-  await page.evaluate(() => document.querySelectorAll('.toast').forEach((t) => { t.dataset.seen = '1'; }));
-  await page.getByRole('button', { name: /From the old calendars/ }).click();
-  const card = page.locator('.drawer .card', { hasText: 'B9 Biology summative' });
-  await card.getByRole('button', { name: 'Add to the app' }).click();
-  await page.locator('.classes label', { hasText: 'Biology 9 Boys' }).locator('input').check();
-  await page.waitForSelector('.verdict', { timeout: 8000 });
-  check(await page.locator('.rowcard input[type=date]').first().inputValue() === '2026-11-05', 'claiming keeps the old date');
-  await page.getByRole('button', { name: 'Add to calendar' }).click();
-  await page.waitForFunction(() => document.querySelector('.drawer .error-text') ||
-    [...document.querySelectorAll('.toast')].some((t) => /Added to the calendar/.test(t.textContent) && !t.dataset.seen), null, { timeout: 8000 });
-  const claimError = await page.locator('.drawer .error-text').count() ? await page.locator('.drawer .error-text').innerText() : '';
-  check(!claimError, 'claiming saves without an error' + (claimError ? ' (' + claimError + ')' : ''));
+  // An imported entry changed in the app: the app takes its old event over.
+  await page.goto(page0 + '?as=teacher&view=week&date=2026-11-05');
+  await page.waitForSelector('#view .week');
   await page.waitForFunction(() => !document.querySelector('#view.is-loading'));
-  const adopted = await page.evaluate(() => window.__PREVIEW__.svc.events('grade9@fake').find((e) => e.id === 'old-g9-2@fake'));
-  check(adopted && /^Summative: Biology 9 Boys/.test(adopted.title), 'the old event is taken over and retitled');
-  check((await page.getByRole('button', { name: /From the old calendars/ }).innerText()).includes('1'), 'one old entry left to handle');
+  const untouched = await page.evaluate(() => window.__PREVIEW__.svc.events('grade9@fake').find((e) => e.id === 'old-g9-2@fake'));
+  check(untouched && untouched.title === 'B9 Biology summative (cells)', 'until then the old event is left as the teacher wrote it');
+  await page.locator('.chip', { hasText: 'B9 Biology summative (cells)' }).first().click();
+  await page.getByRole('button', { name: 'Edit' }).click();
+  await page.locator('#f-title').fill('Cells test');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await page.waitForFunction(() => document.querySelector('.drawer .error-text') ||
+    [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('Saved.')), null, { timeout: 8000 });
+  const editError = await page.locator('.drawer .error-text').count() ? await page.locator('.drawer .error-text').innerText() : '';
+  check(!editError, 'an imported entry can be edited' + (editError ? ' (' + editError + ')' : ''));
+  const adopted = await page.evaluate(() => window.__PREVIEW__.svc.events('grade9@fake').filter((e) => /Cells test/.test(e.title)));
+  check(adopted.length === 1 && adopted[0].id === 'old-g9-2@fake' && /^Summative: Biology 9 Boys/.test(adopted[0].title),
+    'the old event is taken over and retitled, not copied');
+  await page.goto(page0 + '?as=teacher&date=2026-10-27');
+  await page.waitForSelector('#view .month');
+  await page.waitForFunction(() => !document.querySelector('#view.is-loading'));
 
   await page.locator('.cell__num', { hasText: /^27$/ }).first().click();
   await page.waitForSelector('.drawer .card--tint');

@@ -124,7 +124,7 @@ var Entries = (function () {
       sectionId: e.section_id || null, grade: e.grade || null, grades: Rules.gradesOf(e),
       courseName: sec ? sec.courseName : 'Grade ' + e.grade,
       courseNumber: sec ? sec.courseNumber : '',
-      label: sec ? Dir.label(sec) : 'All of Grade ' + e.grade,
+      label: sec ? Dir.label(sec) : (e.source === 'CALENDAR' ? 'Grade ' + e.grade + ' (class not known)' : 'All of Grade ' + e.grade),
       department: sec ? sec.department : '',
       teacherName: Dir.teacherName(e.teacher_email)
     };
@@ -448,6 +448,7 @@ var Entries = (function () {
       }
       next.updated_by = u.email;
       next.updated_at = Svc.stamp();
+      if (e.mirror_status === 'SOURCE') Mirror.takeOver(next);
       write(next);
       log(u, decision && decision.status === 'PENDING' ? 'REQUEST' : 'UPDATE', id, { patch: patch, status: next.status });
       return { entry: next, evaluation: ev, before: e.status };
@@ -592,6 +593,6 @@ var Entries = (function () {
     project: project, parseScope: parseScope, listRange: listRange, pending: pending,
     pendingCount: pendingCount, sanitize: sanitize, create: create, update: update,
     remove: remove, decideRequest: decideRequest, syncMirror: syncMirror,
-    saveMirror: saveMirror, isSlt: isSlt, canBook: canBook, reset: reset
+    saveMirror: saveMirror, save: write, isSlt: isSlt, canBook: canBook, reset: reset
   };
 })();

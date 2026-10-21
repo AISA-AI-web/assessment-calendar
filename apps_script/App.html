@@ -941,7 +941,11 @@
       row('Request', e.requestReason);
       row('Override', e.overrideReason ? e.overrideReason + (e.overrideBy && e.overrideBy !== 'import' ? ' (' + e.overrideBy + ')' : '') : '');
       row('SLT note', e.decisionNote);
-      if (isSlt()) row('Grade calendar', e.mirrorStatus === 'OK' ? 'Copied' : e.mirrorStatus ? e.mirrorStatus : (e.status === 'ACTIVE' ? 'Not copied yet' : ''));
+      if (isSlt()) {
+        row('Grade calendar', e.mirrorStatus === 'OK' ? 'Copied' :
+          e.mirrorStatus === 'SOURCE' ? 'Brought in from it. It follows that event until someone changes it here.' :
+          e.mirrorStatus ? e.mirrorStatus : (e.status === 'ACTIVE' ? 'Not copied yet' : ''));
+      }
     }
     dr.body.appendChild(kv);
 

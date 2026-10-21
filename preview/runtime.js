@@ -35,7 +35,7 @@
   window.Svc = svc;
   Store.setBackend(backend);
 
-  var KEY = 'ac-preview:' + fx.today + ':' + fx.tables.Assessments.length;
+  var KEY = 'ac-preview2:' + fx.today + ':' + fx.tables.Assessments.length;
 
   function resetCaches() {
     Store.invalidate();
@@ -53,6 +53,9 @@
     fresh.calendars.forEach(function (c) { svc.addCalendar(c.id, c.name, c.events); });
     resetCaches();
     Days.sync();
+    resetCaches();
+    // What teachers had already put on the grade calendars, brought in as menu step 4 does.
+    Mirror.importExisting();
     resetCaches();
   }
 

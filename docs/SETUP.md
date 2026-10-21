@@ -229,16 +229,41 @@ Then reload the Sheet so its menu picks up any changes. Instead of the last
 command you can use the Apps Script editor: **Deploy → Manage deployments →
 Edit → Version: New version → Deploy**.
 
-## 7. Bring in the old grade-calendar entries
+## 7. Bring in what is already on the grade calendars
 
 Choose **4. Import entries from the grade calendars**. Every event dated from
-today (or from Settings → `import_from`) is queued. Each teacher sees their
-own under **From the old calendars** in the app. They either add one properly
-(the old event is then replaced by the standard one) or mark it "not an
-assessment". SLT can handle anyone's.
+today (or from Settings → `import_from`) goes straight onto the app's calendar.
+Teachers don't have to do anything. The app works out which classes each event
+is for from:
 
-From then on, teachers should book only in the app. The grade calendars become
-a read-only copy, and anything typed straight into them is not counted.
+- the course code in its title, e.g. `B6ASA`, `G07ART` or `Gr10ASL`;
+- Girls or Boys (`G&B` means both);
+- its subject words, e.g. "Chem" or "Eng";
+- the period it falls in, from its time or a `D6 P4` in the title;
+- who posted it: the poster's own classes come first.
+
+When one person posts the same assessment once per class on the same day (as
+"…Girls_113" and "…Girls_215"), each event gets one class.
+
+| The event | In the app |
+|---|---|
+| A summative (its title says Summative, SA, Exam…) matched to classes | An entry for each class. It counts toward the daily limit. |
+| A formative (Formative, FA…) matched to classes | An entry for each class, shown lighter and never counted |
+| No class found | One entry for the grade, marked "class not known". It doesn't count. |
+| No assessment word in the title, or longer than a week | A notice for the grade. It doesn't count. |
+
+Imported entries start as "not yet announced to students". Their notes say
+which grade calendar they came from and who posted them, and every event is
+logged in the ImportQueue tab.
+
+The grade calendars stay exactly as the teachers left them. Until someone
+changes an imported entry in the app, it follows its event: if the teacher
+moves, renames or deletes it on the grade calendar, the app does the same
+within the hour. Once someone changes it in the app, the app takes the event
+over and keeps it in step, like any other booking. New events added straight
+to a grade calendar are brought in every hour, so nothing is missed while
+teachers get used to the app. From then on, teachers should book only in the
+app.
 
 ---
 
@@ -249,7 +274,7 @@ a read-only copy, and anything typed straight into them is not counted.
 - [ ] Staff tab: SLT and admins
 - [ ] Internal Calendar synced and InternalEvents checked
 - [ ] Class roster loaded (menu 3), with student emails present
-- [ ] Old grade-calendar entries queued (step 7)
+- [ ] Grade-calendar entries imported (step 7)
 - [ ] Web app deployed; tried with one teacher account and one student account
 - [ ] Teachers told: book here first, then tell students, then tick "Announced to students"
 
@@ -294,7 +319,7 @@ publish a **New version** (above).
 
 ## For developers
 
-- `npm test` runs 58 tests: the real server code against an in-memory Sheet.
+- `npm test` runs 63 tests: the real server code against an in-memory Sheet.
 - `npm run preview` builds `preview/dist/index.html`, the full app with no
   Google needed.
 - `npm run screenshots` drives the preview in Chromium and checks the main

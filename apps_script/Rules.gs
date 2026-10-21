@@ -21,7 +21,8 @@ var Rules = (function () {
   /** Student numbers an entry applies to on a date. */
   function studentsOf(entry, date) {
     if (entry.section_id) return Dir.studentsInSection(entry.section_id, date || entry.date);
-    if (entry.grade) return Dir.studentsInGrade(entry.grade);
+    // An old grade-calendar event the app could not match to a class: shown, but nobody's.
+    if (entry.grade && entry.source !== 'CALENDAR') return Dir.studentsInGrade(entry.grade);
     return [];
   }
 
