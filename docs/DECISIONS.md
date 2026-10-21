@@ -29,6 +29,7 @@ open. Update it whenever a decision changes, so this context is not lost again.
 | 9 | Grade calendars | Import the existing entries once (each creator claims theirs), then mirror every entry one-way to the matching grade calendar. Believed staff-only, so unannounced entries are mirrored too (`mirror_unannounced = TRUE`); **confirm with the SLT member who owns the grade calendars**. |
 | 10 | Internal Calendar | Read-only overlay from "AISA (Internal Calendar)", synced hourly. |
 | 11 | Roster source (21 Oct) | The school's class roster export: one sheet, one row per student per class per teacher. Class Name is the class ID, and Course Number is the subject code (friendly names optional, in the CourseNames tab). Homerooms (`HHR`) are skipped. Names and genders are not stored. It has no meeting times, so next-lesson suggestions stay off until `Expression`/`Term` are added. Its Student Email column arrived broken (`#NAME?`): fix it at the source, or use `student_email_pattern`. |
+| 12 | Who loads the roster (21 Oct) | Only the Sheet's admins (role ADMIN in the Staff tab), from the Sheet menu, never from the web app. One step: paste into the Roster tab, then "Load the class roster", which shows a summary and asks Yes/No. |
 
 ## How it works now (built)
 

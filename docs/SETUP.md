@@ -67,7 +67,10 @@ Set up creates the tabs and fills in default settings. It also adds the Calendar
 The other settings (year and semester dates, the limit of 2, `BLOCK`) are
 already set for 2026–27.
 
-**Staff tab:** add one row per person who needs more than a teacher's access.
+**Staff tab:** give role `ADMIN` to the accounts that look after the
+calendar. Only they can use the Sheet menu (loading the roster, syncing,
+imports), and the Sheet should be shared with them alone. Then add one row per
+person who needs more than a teacher's access.
 Use role `SLT` for those who approve requests and can override the limit
 (Head of T&L, Secondary Principal, Secondary SLT) and `ADMIN` for whoever runs
 the Sheet. Use `VIEWER` for staff who should see the calendar without booking,
@@ -118,36 +121,37 @@ Instructor First/Last Name for the teacher, Student ID, Student Grade, and
 Student Email. Other columns are ignored. Student names and genders are never
 read or stored.
 
-1. **Save the roster as CSV.** In Excel: **File → Save As → CSV UTF-8**. Only
-   the open worksheet is saved, so open the roster sheet first. If the roster
-   is a Google Sheet, you can instead copy every cell and paste it into the
-   **Roster** tab with **Paste special → Values only**, then skip step 2.
-2. **Import it into the Roster tab.** Open the **Roster** tab → **File →
-   Import → Upload** → choose the CSV → Import location **Replace current
-   sheet** → **untick "Convert text to numbers, dates, and formulas"** →
-   Import data.
-3. **Check it.** Choose **3. Check the class roster (changes nothing)**. The
-   report says how many classes, students and teachers it found. It also lists
-   what it skipped (other grades, homerooms) and any problems.
-4. **Fix what the report flags**, then check again:
-   - *Students have no usable email.* Students sign in with their school
-     account, so the app needs each student's email. If the Student Email
-     column shows `#NAME?`, it holds a formula Excel could not work out. Copy
-     that column as values from the original file, or set Settings →
-     `student_email_pattern` (for example `{id}@aisa.sch.ae`, where `{id}` is
-     the Student ID).
-   - *Homerooms or other non-teaching classes appear.* Settings →
-     `roster_skip_courses` lists the course numbers to leave out, as a
-     regular expression. The default skips homerooms such as `HHR`.
-5. **Load it.** Choose **4. Load the class roster**. This replaces the
-   previous roster.
-6. **Optional:** the **CourseNames** tab now lists every course number. Type a
-   friendly name next to any code (`IB1ENGS` → `English A SL`) and the app
-   uses it straight away.
+All of this happens in the Google Sheet. Teachers and students never see it.
+Only people with role **ADMIN** in the Staff tab can use the Sheet's menu, so
+keep the Sheet shared with just the admin accounts.
 
-Load the roster again whenever classes change: at least before Semester 2, and
-after any big add/drop. A class that has bookings but is missing from the new
-roster is kept, marked `RETIRED` in the Sections tab, so its entries still
+1. Open the roster in Excel (or Google Sheets), click any cell, and press
+   **Ctrl+A** then **Ctrl+C** to copy everything, header row included.
+2. In the calendar's Sheet, open the **Roster** tab, click cell **A1**, and
+   paste with **Ctrl+Shift+V** (values only). Replace anything already there.
+3. Choose **Assessment Calendar → 3. Load the class roster from the Roster
+   tab**. A summary shows how many classes, students and teachers it found,
+   what it skipped (other grades, homerooms) and any problems. Click **Yes**
+   to load it, or **No** to change nothing.
+
+If the summary flags something, fix it and run step 3 again:
+
+- *Students have no usable email.* Students sign in with their school account,
+  so the app needs each student's email. If the Student Email column shows
+  `#NAME?`, it holds a formula Excel could not work out. Copy that column as
+  values from the original file, or set Settings → `student_email_pattern`
+  (for example `{id}@aisa.sch.ae`, where `{id}` is the Student ID).
+- *Homerooms or other non-teaching classes appear.* Settings →
+  `roster_skip_courses` lists the course numbers to leave out, as a regular
+  expression. The default skips homerooms such as `HHR`.
+
+Optional: after loading, the **CourseNames** tab lists every course number.
+Type a friendly name next to any code (`IB1ENGS` → `English A SL`) and the
+app uses it straight away.
+
+Load the roster again whenever classes change: at least before Semester 2,
+and after any big add/drop. A class that has bookings but is missing from the
+new roster is kept, marked `RETIRED` in the Sections tab, so its entries still
 show. Its students no longer count toward the limit, so if a class was only
 renamed, move its bookings to the new class.
 
@@ -156,10 +160,10 @@ lessons or warn when it does not meet on a given day. The 2-per-day check does
 not need them. If IT can add PowerSchool's `Expression` and `Term` columns to
 the roster, those features switch on.
 
-*Two PowerSchool files instead?* Import `sections.csv` into **PS_Sections** and
-`enrolments.csv` into **PS_Enrolments** the same way (see
+*Two PowerSchool files instead?* Paste `sections.csv` into **PS_Sections** and
+`enrolments.csv` into **PS_Enrolments** (see
 [POWERSCHOOL_EXPORT.md](POWERSCHOOL_EXPORT.md)), leave the Roster tab empty,
-and use steps 3 and 4.
+and run step 3.
 
 ## 6. Deploy the web app
 
@@ -175,7 +179,7 @@ the same.
 
 ## 7. Bring in the old grade-calendar entries
 
-Choose **5. Import entries from the grade calendars**. Every event dated from
+Choose **4. Import entries from the grade calendars**. Every event dated from
 today (or from Settings → `import_from`) is queued. Each teacher sees their
 own under **From the old calendars** in the app. They either add one properly
 (the old event is then replaced by the standard one) or mark it "not an
@@ -192,12 +196,28 @@ a read-only copy, and anything typed straight into them is not counted.
 - [ ] Settings: seven grade calendar IDs, `support_email`, `mirror_unannounced` confirmed with the grade calendars' owner
 - [ ] Staff tab: SLT and admins
 - [ ] Internal Calendar synced and InternalEvents checked
-- [ ] Class roster checked (step 3) and loaded (step 4), with student emails present
+- [ ] Class roster loaded (menu 3), with student emails present
 - [ ] Old grade-calendar entries queued (step 7)
 - [ ] Web app deployed; tried with one teacher account and one student account
 - [ ] Teachers told: book here first, then tell students, then tick "Announced to students"
 
 ## Troubleshooting
+
+### The web app link does not load
+
+| What you see | Fix |
+|---|---|
+| "Sorry, unable to open the file at this time" or a Google Drive error page | You are signed in to more than one Google account and the browser picked another one. Open the link in an Incognito/Private window and sign in with only your AISA account. |
+| "You need access" or "You do not have permission" | The deployment's access is not set to the school. Deploy → Manage deployments → edit → Who has access: Anyone within the AISA domain. |
+| "Authorization is required to perform that action" | The deploying account has not approved the app's permissions yet. Open the Sheet → Assessment Calendar → 1. Set up, approve, then reload the link. |
+| "Script function not found: doGet" | The deployment points at an old version without the code. Deploy → Manage deployments → edit (pencil) → Version: **New version** → Deploy. The link stays the same. Deploy → Test deployments gives a /dev link that always runs the latest code. |
+| "The Assessment Calendar could not start" | The page says what failed. Usually Set up has not been run, or an HTML file is missing. |
+| "Your account does not have access…" | You are not in the Staff tab, not a teacher in the roster and not an enrolled student. Add yourself to Staff (Set up adds the first admin automatically). |
+
+After changing code, the /exec link keeps running the old version until you
+publish a **New version** (above).
+
+### Other problems
 
 | Symptom | Fix |
 |---|---|

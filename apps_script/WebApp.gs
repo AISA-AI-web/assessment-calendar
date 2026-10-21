@@ -7,16 +7,38 @@
  */
 
 function doGet(e) {
-  var params = (e && e.parameter) || {};
-  var boot = Api.run(function (u) { return Api.bootstrap(u); });
-  if (!boot.ok && boot.error.code === 'NO_ACCESS') return noAccessPage_(boot.error.message);
-  var t = HtmlService.createTemplateFromFile('Index');
-  t.bootstrapJson = safeJson_(boot);
-  t.paramsJson = safeJson_({ view: params.view || '', date: params.date || '', scope: params.scope || '' });
-  var title = boot.ok ? boot.data.settings.appTitle : 'Assessment Calendar';
-  return t.evaluate()
-    .setTitle(title)
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  try {
+    var params = (e && e.parameter) || {};
+    var boot = Api.run(function (u) { return Api.bootstrap(u); });
+    if (!boot.ok && boot.error.code === 'NO_ACCESS') return noAccessPage_(boot.error.message);
+    var t = HtmlService.createTemplateFromFile('Index');
+    t.bootstrapJson = safeJson_(boot);
+    t.paramsJson = safeJson_({ view: params.view || '', date: params.date || '', scope: params.scope || '' });
+    var title = boot.ok ? boot.data.settings.appTitle : 'Assessment Calendar';
+    return t.evaluate()
+      .setTitle(title)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  } catch (err) {
+    console.error('doGet failed: ' + (err && err.stack ? err.stack : err));
+    return startupErrorPage_(err);
+  }
+}
+
+/** Shown instead of a raw Google error when the page itself cannot be built. */
+function startupErrorPage_(err) {
+  var message = (err && (err.userMessage || err.message)) || String(err);
+  var html = '<!doctype html><html><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<style>body{font-family:"DM Sans",Arial,sans-serif;color:#1A1A1A;max-width:640px;margin:48px auto;padding:0 16px;line-height:1.5}' +
+    'h1{color:#21076C;font-size:24px}code{background:#F2EFFA;padding:2px 6px;border-radius:4px}</style></head><body>' +
+    '<h1>The Assessment Calendar could not start</h1>' +
+    '<p>The server said: <code>' + escapeHtml_(message) + '</code></p>' +
+    '<p>This usually means one of these:</p><ul>' +
+    '<li>Set up has not been run: open the Sheet → Assessment Calendar → 1. Set up.</li>' +
+    '<li>The deployment is an old version: Deploy → Manage deployments → edit → Version: New version.</li>' +
+    '<li>A file is missing from the Apps Script project (it needs Index, Styles and App HTML files).</li>' +
+    '</ul></body></html>';
+  return HtmlService.createHtmlOutput(html).setTitle('Assessment Calendar');
 }
 
 /** Used by Index.html: <?!= include('Styles') ?> */
@@ -138,6 +160,20 @@ function requireAdminCaller_() {
   throw U.err('FORBIDDEN', 'Only admins can run this.');
 }
 
+/**
+ * The Sheet menu is for admins only: the people with role ADMIN in the Staff
+ * tab. Anyone else who can open the Sheet is refused, so sharing the Sheet
+ * by mistake does not let them load a roster. Set up also lets the very first
+ * person in, while the Staff tab has no ADMIN yet.
+ */
+function requireAdmin_(allowFirstRun) {
+  var me = Svc.userEmail();
+  if (me && Dir.userFor(me).role === 'ADMIN') return;
+  if (allowFirstRun && !Store.all('Staff').some(function (r) { return U.clean(r.role).toUpperCase() === 'ADMIN'; })) return;
+  throw U.err('FORBIDDEN', 'Only admins can use this menu. An admin can add ' + (me || 'your account') +
+    ' to the Staff tab with role ADMIN.');
+}
+
 /* ---------------------------------------------------------------------
    Triggers
    ------------------------------------------------------------------ */
@@ -163,9 +199,8 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Assessment Calendar')
     .addItem('1. Set up or repair this Sheet', 'menuSetup')
     .addItem('2. Sync the Internal Calendar now', 'menuSyncInternal')
-    .addItem('3. Check the class roster (changes nothing)', 'menuCheckRoster')
-    .addItem('4. Load the class roster', 'menuProcessImport')
-    .addItem('5. Import entries from the grade calendars', 'menuImportGradeCalendars')
+    .addItem('3. Load the class roster from the Roster tab', 'menuLoadRoster')
+    .addItem('4. Import entries from the grade calendars', 'menuImportGradeCalendars')
     .addSeparator()
     .addItem('Re-copy every entry to the grade calendars', 'menuResyncMirror')
     .addItem('Open the web app', 'menuOpenApp')
@@ -187,6 +222,7 @@ function guarded_(title, fn) {
 function menuSetup() {
   requireAdminCaller_();
   guarded_('Set up', function () {
+    requireAdmin_(true);
     SpreadsheetApp.getActiveSpreadsheet().setSpreadsheetTimeZone('Asia/Dubai');
     var r = Setup.run();
     installTriggers_();
@@ -204,26 +240,39 @@ function menuSetup() {
 function menuSyncInternal() {
   requireAdminCaller_();
   guarded_('Internal Calendar', function () {
+    requireAdmin_();
     var r = Days.sync();
     return 'Copied ' + r.events + ' events. Check the InternalEvents tab: correct any event with override_category or override_grades.';
   });
 }
 
-function menuCheckRoster() {
+/** One step: shows what the Roster tab contains, then loads it if the admin says yes. */
+function menuLoadRoster() {
   requireAdminCaller_();
-  guarded_('Class roster check', function () {
-    return 'Nothing has been changed.\n\n' + PsImport.describe(PsImport.process({ dryRun: true }));
-  });
-}
-
-function menuProcessImport() {
-  requireAdminCaller_();
-  guarded_('Class roster', function () { return PsImport.describe(PsImport.process()); });
+  var ui = SpreadsheetApp.getUi();
+  try {
+    requireAdmin_();
+    var check = PsImport.process({ dryRun: true });
+    if (check.errors.length) {
+      alert_('Class roster', PsImport.describe(check));
+      return;
+    }
+    var answer = ui.alert('Load the class roster?',
+      PsImport.describe(check) + '\n\nLoad it now? This replaces the roster the app is using.', ui.ButtonSet.YES_NO);
+    if (answer !== ui.Button.YES) {
+      alert_('Class roster', 'Nothing was changed.');
+      return;
+    }
+    alert_('Class roster', PsImport.describe(PsImport.process()));
+  } catch (e) {
+    alert_('Class roster', 'It did not work: ' + (e.userMessage || e.message));
+  }
 }
 
 function menuImportGradeCalendars() {
   requireAdminCaller_();
   guarded_('Grade calendars', function () {
+    requireAdmin_();
     var r = Mirror.importExisting();
     var per = Object.keys(r.perGrade).map(function (g) { return 'Grade ' + g + ': ' + r.perGrade[g]; }).join(', ');
     return r.added
@@ -235,6 +284,7 @@ function menuImportGradeCalendars() {
 function menuResyncMirror() {
   requireAdminCaller_();
   guarded_('Grade calendars', function () {
+    requireAdmin_();
     var r = Mirror.resyncAll();
     return 'Updated ' + r.synced + ' entries.' + (r.remaining ? ' ' + r.remaining + ' are left: run this again.' : '');
   });
@@ -242,6 +292,9 @@ function menuResyncMirror() {
 
 function menuOpenApp() {
   requireAdminCaller_();
-  var url = Config.get().appUrl || Svc.appUrl();
-  alert_('Web app', url ? url : 'Deploy the web app first: Deploy → New deployment → Web app.');
+  guarded_('Web app', function () {
+    requireAdmin_();
+    var url = Config.get().appUrl || Svc.appUrl();
+    return url ? url : 'Deploy the web app first: Deploy → New deployment → Web app.';
+  });
 }

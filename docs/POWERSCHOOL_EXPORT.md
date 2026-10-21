@@ -74,7 +74,7 @@ Please leave out dropped enrolments. In `CC` these have a negative
 ## What happens to the data
 
 The admin imports both files into the calendar's private Sheet and runs
-**Assessment Calendar → 3. Check the class roster** and then **4. Load the class roster**. This checks the files
+**Assessment Calendar → 3. Load the class roster**. This checks the files
 (unknown sections, missing emails, duplicates), reports any problems and
 replaces the previous import. Teachers never see enrolment lists. When a
 booking would give some students a third summative that day, the app tells
