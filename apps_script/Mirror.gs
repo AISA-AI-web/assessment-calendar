@@ -212,8 +212,11 @@ var Mirror = (function () {
 
   /* ---------- which classes an old event is for ---------- */
 
-  var NOT_SUBJECTS = U.toSet(('summative formative assessment assessments grade girls boys unit test tests quiz exam ' +
-    'part paper reading writing window deadline submit showcase final term week day period room the and for with').split(' '));
+  // Built without U: Apps Script loads files alphabetically, so Util.gs is not there yet.
+  var NOT_SUBJECTS = {};
+  ('summative formative assessment assessments grade girls boys unit test tests quiz exam part paper reading writing ' +
+    'window deadline submit showcase final term week day period room the and for with').split(' ')
+    .forEach(function (w) { NOT_SUBJECTS[w] = true; });
 
   /** Lower-case words of three or more letters that could name a subject. */
   function subjectWords(text) {
