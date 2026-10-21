@@ -56,10 +56,11 @@ var Rules = (function () {
 
   /**
    * Per-day load for a scope:
-   *   { cap, days: { date: { max, at, over } } }
+   *   { cap, days: { date: { max, at, over, clash? } } }
    * max is the busiest student's count; at/over count students at or above the cap.
+   * withClashes adds, on days with students over the cap, clash: { entry id: how many of them it touches }.
    */
-  function loadFor(scope, from, to, entries) {
+  function loadFor(scope, from, to, entries, withClashes) {
     var cap = Config.get().maxPerDay;
     var counts = countMap(entries, from, to, null);
     var days = {};
@@ -69,13 +70,20 @@ var Rules = (function () {
       var max = 0;
       var at = 0;
       var over = 0;
+      var clash = {};
       ids.forEach(function (sid) {
-        var n = day[sid] ? day[sid].length : 0;
+        var list = day[sid] || [];
+        var n = list.length;
         if (n > max) max = n;
         if (n === cap) at++;
-        if (n > cap) over++;
+        if (n > cap) {
+          over++;
+          list.forEach(function (id) { clash[id] = (clash[id] || 0) + 1; });
+        }
       });
-      if (max) days[date] = { max: max, at: at, over: over };
+      if (!max) return;
+      days[date] = { max: max, at: at, over: over };
+      if (over && withClashes) days[date].clash = clash;
     });
     return { cap: cap, days: days };
   }

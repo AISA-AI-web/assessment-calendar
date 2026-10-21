@@ -186,8 +186,10 @@ var Entries = (function () {
     var visible = all().filter(function (e) { return e.date >= start && e.date <= end && visibleTo(e, u); });
     var memo = {};
     var list = visible.filter(function (e) { return inScope(e, scope, memo); });
-    // Students' load counts only what they can see; staff load counts everything.
-    var load = Rules.loadFor(scope, start, end, u.role === 'STUDENT' ? visible : all());
+    // Students' load counts only what they can see; staff load counts everything,
+    // and staff also learn which entries put students over the limit.
+    var student = u.role === 'STUDENT';
+    var load = Rules.loadFor(scope, start, end, student ? visible : all(), !student);
     return {
       scope: { key: scope.key, kind: scope.kind, label: scope.label },
       start: start, end: end,

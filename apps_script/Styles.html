@@ -179,6 +179,8 @@ a { color: var(--aisa-purple); }
 .chip__text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .chip__flag { flex: none; margin-left: auto; font-size: 11px; font-weight: 700; }
 .chip[data-cat="EXAM"] { background: var(--exam); }
+.chip[data-clash] { background: var(--alert); border-color: var(--alert); color: var(--aisa-white); }
+.legend__clash { display: inline-block; width: 14px; height: 14px; margin-right: 4px; border-radius: 3px; background: var(--alert); vertical-align: -2px; }
 .chip[data-cat="FORMATIVE"] { background: var(--aisa-purple-tint); color: var(--aisa-purple); border-color: var(--aisa-purple-border); }
 .chip[data-cat="FORMATIVE"] .chip__code { background: var(--aisa-white); }
 .chip[data-status="PENDING"] { background: var(--aisa-white); color: var(--aisa-purple); border: 1px dashed var(--aisa-purple); }

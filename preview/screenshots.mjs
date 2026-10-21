@@ -108,7 +108,13 @@ async function shot(page, name, full) {
   await page.keyboard.press('Escape');
   const over = await page.locator('.cell .meter[data-level="over"]').count();
   check(over >= 1, 'after approval the day shows as over the limit');
+  check(await page.locator('.chip[data-clash]').count() >= 2, 'the entries that put students over the limit are red');
   await shot(page, '5b-slt-after-approval');
+  await page.goto(page0 + '?as=slt&date=2026-10-27&scope=all');
+  await page.waitForSelector('#view .month');
+  await page.waitForFunction(() => !document.querySelector('#view.is-loading'));
+  check(await page.locator('.cell .chip[data-clash]').count() >= 2, 'in all grades the clashing entries show first, in red');
+  await shot(page, '5c-slt-all-grades-clash');
   check(await page.locator('#preview-bar details summary').innerText().then((t) => /\((2|3)\)/.test(t)), 'emails to SLT and the teacher are in the outbox');
   await ctx.close();
 }

@@ -237,8 +237,10 @@
     S.byDate = {};
     (data ? data.entries : []).forEach(function (e) { (S.byDate[e.date] = S.byDate[e.date] || []).push(e); });
     Object.keys(S.byDate).forEach(function (d) {
+      // Entries that put students over the limit first, so a busy day can't hide them behind "+ more".
       S.byDate[d].sort(function (a, b) {
-        return CAT_ORDER[a.category] - CAT_ORDER[b.category] ||
+        return (clashOf(b) ? 1 : 0) - (clashOf(a) ? 1 : 0) ||
+          CAT_ORDER[a.category] - CAT_ORDER[b.category] ||
           ((+a.periods[0] || 99) - (+b.periods[0] || 99)) ||
           (a.title < b.title ? -1 : a.title > b.title ? 1 : 0);
       });
@@ -298,6 +300,12 @@
     return S.current && S.current.load && S.current.load.days ? S.current.load.days[ymd] || null : null;
   }
 
+  /** How many students an entry puts over the daily limit that day (staff only; 0 otherwise). */
+  function clashOf(e) {
+    var ld = loadOn(e.date);
+    return ld && ld.clash ? ld.clash[e.id] || 0 : 0;
+  }
+
   function filtersActive() {
     var f = S.filters;
     return !f.SUMMATIVE || !f.EXAM || !f.FORMATIVE || !!f.dept || !!f.q;
@@ -329,15 +337,19 @@
   function chip(e, opts) {
     opts = opts || {};
     var c = catInfo(e.category);
+    var clash = clashOf(e);
     var flag = e.status === 'PENDING' ? 'Pending' : e.status === 'DECLINED' ? 'Declined' :
       (user().isStaff && !e.announced ? '○' : '');
+    if (clash) flag = '!' + (flag ? ' ' + flag : '');
     var words = c.label + ': ' + chipText(e) + (opts.withPeriods ? ', ' + periodText(e.periods) : '') +
       (e.status === 'PENDING' ? ' (waiting for SLT approval)' : '') +
       (e.status === 'DECLINED' ? ' (declined)' : '') +
+      (clash ? ' (puts ' + plural(clash, 'student') + ' over the daily limit)' : '') +
       (user().isStaff && !e.announced && e.status === 'ACTIVE' ? ' (not yet announced to students)' : '');
     return h('button', {
       class: 'chip', type: 'button', 'data-cat': e.category,
       'data-status': e.status === 'ACTIVE' ? null : e.status,
+      'data-clash': clash ? 'true' : null,
       'data-unannounced': user().isStaff && !e.announced ? 'true' : null,
       title: words, 'aria-label': words,
       onclick: function (ev) { ev.stopPropagation(); openEntry(e, ev.currentTarget); }
@@ -588,6 +600,7 @@
     append(box, [
       h('span', null, [sample(c), ' busiest student at the limit (' + c + ' summatives a day)']),
       h('span', null, [sample(c + 1), ' over the limit']),
+      user().isStaff ? h('span', null, [h('span', { class: 'legend__clash', 'aria-hidden': 'true' }), 'puts students over the limit']) : null,
       user().isStaff ? h('span', { text: '○ not yet announced to students' }) : null,
       user().isStaff ? h('span', { text: 'Dashed = waiting for SLT' }) : null,
       h('span', { text: 'D3 = rotation day' })
@@ -928,6 +941,11 @@
       e.status === 'DECLINED' ? h('span', { class: 'tag tag--alert', text: 'Declined by SLT' }) :
       user().isStaff ? (e.announced ? h('span', { class: 'tag tag--ok', text: 'Announced to students' }) : h('span', { class: 'tag', text: 'Not yet announced to students' })) : null;
     if (status) dr.body.appendChild(h('div', null, status));
+    var clash = clashOf(e);
+    if (clash) {
+      dr.body.appendChild(h('div', null, h('span', { class: 'tag tag--alert',
+        text: 'Puts ' + plural(clash, 'student') + ' over the daily limit of ' + cap() + ' summatives' })));
+    }
     var times = timesFor(e.date, e.periods);
     var kv = h('dl', { class: 'kv' });
     function row(k, v) { if (v) append(kv, [h('dt', { text: k }), h('dd', null, v)]); }

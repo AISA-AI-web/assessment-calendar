@@ -361,3 +361,20 @@ test('only ADMINs in the Staff tab can use the Sheet menu', () => {
   assert.throws(() => g.requireAdmin_(), /Only admins/);
   assert.doesNotThrow(() => g.requireAdmin_(true));
 });
+
+test('on a day over the limit, staff learn which entries put students over it', () => {
+  const t = fresh({ user: 'admin@school.example' });
+  const res = call(g, 'apiCreate', draft(t, 'G09BIO', '2026-10-27', { title: 'Third one', overrideReason: 'Agreed with the HoD' }));
+  assert.equal(res.ok, true, JSON.stringify(res.error));
+  const id = res.data.entries[0].id;
+  const day = call(g, 'apiGetRange', { start: '2026-10-26', end: '2026-10-30', scope: 'all' }).data.load.days['2026-10-27'];
+  assert.ok(day.over > 0);
+  assert.equal(day.clash[id], day.over, 'the new entry touches every student it puts over');
+  assert.ok(Object.keys(day.clash).length >= 3, 'with the two it collides with');
+  const quiet = call(g, 'apiGetRange', { start: '2026-10-26', end: '2026-10-30', scope: 'all' }).data.load.days;
+  assert.ok(Object.keys(quiet).filter((d) => d !== '2026-10-27').every((d) => !quiet[d].over === !quiet[d].clash),
+    'only days over the limit list clashes');
+  t.as(t.fx.people.student);
+  const mine = call(g, 'apiGetRange', { start: '2026-10-26', end: '2026-10-30', scope: 'me' }).data.load.days['2026-10-27'];
+  assert.ok(!mine || !('clash' in mine), 'students are never sent it');
+});
