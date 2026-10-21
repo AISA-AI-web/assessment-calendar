@@ -62,7 +62,7 @@
     'Zara', 'Hugo', 'Layla', 'Ravi', 'Nadia', 'Peter', 'Amal', 'Jonas', 'Ines', 'Malik'];
   var LAST = ['Haddad', 'Farouk', 'Ortiz', 'Mansour', 'Bianchi', 'Rahman', 'Kim', 'Novak', 'Saleh', 'Costa',
     'Yilmaz', 'Brandt', 'Aziz', 'Khoury', 'Meyer', 'Bakr', 'Nasser', 'Silva', 'Hamdan', 'Wright',
-    'Qureshi', 'Lindgren', 'Darwish', 'Patel', 'Fares', 'Moreau', 'Hassan', 'Weber', 'Laurent', 'Odeh'];
+    'Qureshi', 'Lindgren', 'Varga', 'Patel', 'Fares', 'Moreau', 'Hassan', 'Weber', 'Laurent', 'Odeh'];
 
   var BANDS = [
     {
