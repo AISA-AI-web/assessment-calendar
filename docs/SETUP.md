@@ -70,6 +70,14 @@ Teaching & Learning.
 
 Set up creates the tabs and fills in default settings. It also adds the CalendarRules and secondary Bells tabs, and makes you ADMIN in the Staff tab. If you subscribe to the AISA (Internal Calendar), it finds that calendar's ID, and it starts an hourly sync. You can run it again at any time: it never overwrites what you have entered.
 
+If the Sheet already has a tab with one of the app's names, Set up uses it.
+When such a tab has columns the app does not use, it may belong to something
+else, such as an earlier version of the calendar. Set up then lists it in its
+message (e.g. "Assessments: 36 columns the app does not use") and leaves it as
+it is. Rename each tab it lists, e.g. to "Assessments (earlier version)", and
+run Set up again: the app then makes fresh ones. If you added those columns
+yourself, you can ignore the message.
+
 ## 3. Fill in Settings and Staff
 
 **Settings tab** (column `value`):
@@ -289,12 +297,12 @@ publish a **New version** (above).
 | A day shows the wrong rotation day | The Internal Calendar has it wrong. Fix it there; the app follows within the hour, or straight away with menu step 2. |
 | A teacher cannot see their class | The roster does not list them as its teacher, or lists an email that is not the one they sign in with. Fix the roster and load it again, or set `teachers_book_any_section` to `TRUE` for now. |
 | A student gets "no access" | The roster has no usable email for them. See step 5. |
-| Loading fails in a Sheet that held an earlier version of the calendar (tabs such as Config, Types or `_Lists`) | That version's Sections and Assessments tabs keep its dropdowns and protected ranges, and the app writes into tabs with those names. Rename them, e.g. to "Sections (earlier version)", and load again: the app makes fresh ones. |
+| Set up lists tabs with "columns the app does not use", or loading fails, in a Sheet that held an earlier version of the calendar (tabs such as Config, Types or `_Lists`) | That version's Sections and Assessments tabs keep its columns, rows, dropdowns and protected ranges, and the app writes into tabs with those names. Set up names such tabs but leaves them as they are. Rename them, e.g. to "Sections (earlier version)", and run Set up again: the app makes fresh ones. Then load the roster again. |
 | "The data you entered in cell B2 violates the data validation rules" | A dropdown or table was added to one of the app's own tabs. Since 21 Oct the app removes such a rule from the cells it writes and carries on, so publish the latest code (step 6) and try again. If it still fails, the message names the tab: select the whole tab, then Data → Data validation → Remove all, or Format → Convert to range. |
 
 ## For developers
 
-- `npm test` runs 58 tests: the real server code against an in-memory Sheet.
+- `npm test` runs 60 tests: the real server code against an in-memory Sheet.
 - `npm run preview` builds `preview/dist/index.html`, the full app with no
   Google needed.
 - `npm run screenshots` drives the preview in Chromium and checks the main

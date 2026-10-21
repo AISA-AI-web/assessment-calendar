@@ -97,11 +97,23 @@ var Setup = (function () {
     Store.append('Settings', [{ key: key, value: value, notes: '' }]);
   }
 
-  /** Creates any missing tab and column, and fills in defaults without overwriting anything. */
+  /**
+   * Creates any missing tab and column, and fills in defaults without overwriting anything.
+   * A tab that was already there with columns the app does not use may belong to something
+   * else that used the same name, such as an earlier version of the calendar. Those tabs are
+   * counted in foreign (name → number of such columns) and left as they are.
+   */
   function run() {
     var created = [];
+    var foreign = {};
     Object.keys(Store.SCHEMAS).forEach(function (name) {
-      if (Store.ensure(name)) created.push(name);
+      var schema = Store.SCHEMAS[name];
+      if (Store.ensure(name)) {
+        created.push(name);
+      } else if (schema.length) {
+        var n = Store.raw(name).headers.filter(function (h) { return h && schema.indexOf(h) < 0; }).length;
+        if (n) foreign[name] = n;
+      }
     });
     var have = U.toSet(Store.all('Settings').map(function (r) { return U.clean(r.key); }));
     var add = Config.DEFAULTS.filter(function (d) { return !have[d[0]]; })
@@ -135,10 +147,32 @@ var Setup = (function () {
     Config.reset();
     Dir.reset();
     Days.reset();
-    return { created: created, settingsAdded: add.length, internalCalendarFound: !!found };
+    return { created: created, foreign: foreign, settingsAdded: add.length, internalCalendarFound: !!found };
   }
 
-  return { run: run, setSetting: setSetting };
+  /** What Set up did, as plain lines for an alert box. */
+  function describe(r) {
+    var lines = [
+      r.created.length ? 'Created tabs: ' + r.created.join(', ') + '.' : 'All tabs were already there.',
+      r.settingsAdded ? 'Added ' + r.settingsAdded + ' settings with default values.' : 'No settings were missing.'
+    ];
+    if (r.internalCalendarFound) lines.push('Found the Internal Calendar and saved its ID.');
+    lines.push('The Internal Calendar now syncs every hour.');
+    var foreign = Object.keys(r.foreign);
+    if (foreign.length) {
+      lines.push('', 'These tabs may belong to something else, such as an earlier version of the calendar:');
+      foreign.forEach(function (name) {
+        var n = r.foreign[name];
+        lines.push(name + ': ' + n + (n === 1 ? ' column' : ' columns') + ' the app does not use');
+      });
+      lines.push('If so, rename each one, e.g. to "' + foreign[0] + ' (earlier version)", and run Set up again: ' +
+        'the app then makes fresh tabs. Nothing was renamed or deleted.');
+    }
+    lines.push('', 'Next: fill in the grade_calendar_* settings and the Staff tab (SLT and admins), then run step 2.');
+    return lines.join('\n');
+  }
+
+  return { run: run, describe: describe, setSetting: setSetting };
 })();
 
 /* ---------------------------------------------------------------------
@@ -226,14 +260,7 @@ function menuSetup() {
     SpreadsheetApp.getActiveSpreadsheet().setSpreadsheetTimeZone('Asia/Dubai');
     var r = Setup.run();
     installTriggers_();
-    var lines = [
-      r.created.length ? 'Created tabs: ' + r.created.join(', ') + '.' : 'All tabs were already there.',
-      r.settingsAdded ? 'Added ' + r.settingsAdded + ' settings with default values.' : 'No settings were missing.'
-    ];
-    if (r.internalCalendarFound) lines.push('Found the Internal Calendar and saved its ID.');
-    lines.push('The Internal Calendar now syncs every hour.', '',
-      'Next: fill in the grade_calendar_* settings and the Staff tab (SLT and admins), then run step 2.');
-    return lines.join('\n');
+    return Setup.describe(r);
   });
 }
 
