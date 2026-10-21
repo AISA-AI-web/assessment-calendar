@@ -32,8 +32,8 @@ Teaching & Learning.
    cd assessment-calendar
    clasp login                                  # sign in with the account from above
    clasp clone <SCRIPT_ID> --rootDir apps_script
-   git checkout -- apps_script/appsscript.json  # clone overwrote it with the default
-   rm -f apps_script/Code.js
+   git checkout -- apps_script                  # clone overwrote files with the project's copies
+   rm -f apps_script/*.js                       # clone saves scripts as .js; the repo uses .gs
    clasp push --force
    ```
 
@@ -173,9 +173,20 @@ and run step 3.
 3. Deploy, then copy the URL ending in `/exec` into Settings → `app_url`
    (emails and calendar entries link to it).
 
-To publish a code change later: `git pull`, `clasp push`, then **Deploy →
-Manage deployments → Edit → Version: New version → Deploy**. The URL stays
-the same.
+To publish a code change later, run this in the folder you cloned. The URL
+stays the same:
+
+```sh
+git pull
+rm -f apps_script/*.js
+clasp push --force
+clasp deployments                                   # the ID is the long code in the /exec link
+clasp deploy --deploymentId <DEPLOYMENT_ID> --description "what changed"
+```
+
+Then reload the Sheet so its menu picks up any changes. Instead of the last
+two commands you can use the Apps Script editor: **Deploy → Manage
+deployments → Edit → Version: New version → Deploy**.
 
 ## 7. Bring in the old grade-calendar entries
 
