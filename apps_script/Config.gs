@@ -37,7 +37,7 @@ var Config = (function () {
     ['show_formatives_to_students', 'TRUE', ''],
     ['support_email', '', 'Shown to anyone who needs help or access.'],
     ['slt_notify_emails', '', 'Emailed about override requests. Blank = everyone with role SLT in the Staff tab.'],
-    ['day_letter_map', '', 'Only if PowerSchool expressions use letters for cycle days, e.g. A=1,B=2,C=3.'],
+    ['day_letter_map', '', 'Letters A–J in PowerSchool expressions already mean Days 1–10. Only if yours differ, e.g. A=2,B=3.'],
     ['student_email_pattern', '', 'Used when the roster has no usable student email, e.g. {id}@aisa.sch.ae. Tokens: {id}, {first}, {last}.'],
     ['roster_skip_courses', '^[A-Z]?HR\\d*$', 'Course numbers the roster import leaves out (a regular expression). Default: homerooms such as HHR.'],
     ['import_from', '', 'Import old grade-calendar events dated from this day (yyyy-mm-dd). Blank = today.'],

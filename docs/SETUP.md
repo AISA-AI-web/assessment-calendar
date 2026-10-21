@@ -81,7 +81,7 @@ Set up creates the tabs and fills in default settings. It also adds the Calendar
 | `support_email` | Who people should contact, e.g. the T&L inbox. |
 | `slt_notify_emails` | Optional. Who gets "approval needed" emails. If blank, everyone with role SLT gets them. |
 | `student_email_pattern` | Only if the roster's student emails are missing: how to build them, e.g. `{id}@aisa.sch.ae`. |
-| `roster_skip_courses` | Course numbers the roster import leaves out (default: homerooms like `HHR`). |
+| `roster_skip_courses` | Course numbers the roster import leaves out (default: the homerooms `HHR` and `MHR`). |
 | `mirror_unannounced` | `TRUE` if only staff can see the grade calendars. `FALSE` if students or parents can, so that unannounced entries stay off them. **Check this with the SLT member who owns the grade calendars.** |
 
 The other settings (year and semester dates, the limit of 2, `BLOCK`) are
@@ -135,24 +135,41 @@ Things to check before the pilot:
 ## 5. Load the class roster
 
 The app needs to know which students are in which class. It reads this from
-the school's **class roster**: one row per student per class per teacher, with
-the columns Class Name, Course Number, Email Address (or User Name) and
-Instructor First/Last Name for the teacher, Student ID, Student Grade, and
-Student Email. Other columns are ignored. Student names and genders are never
-read or stored.
+IT's **PowerSchool CC export**, a tab-separated file with one row per student
+per class (see [POWERSCHOOL_EXPORT.md](POWERSCHOOL_EXPORT.md)). The school's
+class roster export (Class Name, Course Number, Email Address, Student ID,
+Student Grade, Student Email) works too. Columns are matched by name and any
+others are ignored. Student names and genders are never read or stored.
 
 All of this happens in the Google Sheet. Teachers and students never see it.
 Only people with role **ADMIN** in the Staff tab can use the Sheet's menu, so
 keep the Sheet shared with just the admin accounts.
 
-1. Open the roster in Excel (or Google Sheets), click any cell, and press
-   **Ctrl+A** then **Ctrl+C** to copy everything, header row included.
-2. In the calendar's Sheet, open the **Roster** tab, click cell **A1**, and
-   paste with **Ctrl+Shift+V** (values only). Replace anything already there.
+1. If the file's name ends in `.text`, rename it to end in `.txt`.
+2. In the calendar's Sheet, open the **Roster** tab, choose **File → Import →
+   Upload** and pick the file. Set **Import location** to **Replace current
+   sheet** and **Separator type** to **Detect automatically**. Untick
+   **Convert text to numbers, dates, and formulas**, so that a date such as
+   2/7/2027 stays 7 February and isn't read as 2 July. Click **Import data**.
 3. Choose **Assessment Calendar → 3. Load the class roster from the Roster
    tab**. A summary shows how many classes, students and teachers it found,
    what it skipped (other grades, homerooms) and any problems. Click **Yes**
    to load it, or **No** to change nothing.
+
+An Excel file instead? Open it, press **Ctrl+A** then **Ctrl+C**, click cell
+**A1** of the Roster tab and paste with **Ctrl+Shift+V** (values only).
+
+What the app takes from the CC export:
+
+| Columns | Used for |
+|---|---|
+| `SectionID` | The class's ID. Bookings are tied to it, so keep using this export. |
+| `Section_Number`, `[2]Course_Name` | The class's name in the app, e.g. "Arabic Second Language 12 (12ASL1)". |
+| `[5]Email_Addr`, `[5]LastFirst` | The teacher, who can then book for the class. |
+| `[1]student_number`, `StudentEmail` | The student, who signs in with that email. |
+| `[1]Grade_Level`, or else `Course_Number` | The student's grade. Without a grade column it comes from the course numbers: `G07ISA` means Grade 7 and `11ISE` Grade 11. Codes with no two-digit grade (`IB1ENGS`, `BAPBIO`) don't count, and each student gets the grade most of their courses carry. |
+| `Expression` | When the class meets: `3(A,F)` is period 3 on Days A and F. Letters A–J are Days 1–10. |
+| `DateEnrolled`, `DateLeft`, `TermID` | When each student is in the class. A Semester 1 class ends when its students leave it. |
 
 If the summary flags something, fix it and run step 3 again:
 
@@ -161,9 +178,12 @@ If the summary flags something, fix it and run step 3 again:
   `#NAME?`, it holds a formula Excel could not work out. Copy that column as
   values from the original file, or set Settings → `student_email_pattern`
   (for example `{id}@aisa.sch.ae`, where `{id}` is the Student ID).
+- *Rows for students whose course numbers carry no grade.* Ask IT to add
+  `[1]Grade_Level` to the export.
 - *Homerooms or other non-teaching classes appear.* Settings →
   `roster_skip_courses` lists the course numbers to leave out, as a regular
-  expression. The default skips homerooms such as `HHR`.
+  expression. The default skips the homerooms `HHR` and `MHR` (HR / Moral
+  Education).
 
 Optional: after loading, the **CourseNames** tab lists every course number.
 Type a friendly name next to any code (`IB1ENGS` → `English A SL`) and the
@@ -175,10 +195,9 @@ new roster is kept, marked `RETIRED` in the Sections tab, so its entries still
 show. Its students no longer count toward the limit, so if a class was only
 renamed, move its bookings to the new class.
 
-The roster has no meeting times, so the app cannot suggest a class's next
-lessons or warn when it does not meet on a given day. The 2-per-day check does
-not need them. If IT can add PowerSchool's `Expression` and `Term` columns to
-the roster, those features switch on.
+The school roster export has no meeting times, so with it the app cannot
+suggest a class's next lessons or warn when a class doesn't meet on a given
+day. The 2-per-day check does not need them. The CC export has them.
 
 *Two PowerSchool files instead?* Paste `sections.csv` into **PS_Sections** and
 `enrolments.csv` into **PS_Enrolments** (see
@@ -273,7 +292,7 @@ publish a **New version** (above).
 
 ## For developers
 
-- `npm test` runs 54 tests: the real server code against an in-memory Sheet.
+- `npm test` runs 56 tests: the real server code against an in-memory Sheet.
 - `npm run preview` builds `preview/dist/index.html`, the full app with no
   Google needed.
 - `npm run screenshots` drives the preview in Chromium and checks the main

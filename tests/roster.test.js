@@ -150,3 +150,72 @@ test('teachers of roster classes book for them, and the per-student limit uses t
   assert.equal(third.error.code, 'BLOCKED');
   assert.equal(third.error.details.evaluation.rows[0].affected.count, 3);
 });
+
+// PowerSchool's CC export as IT sends it: table-numbered headers, a student
+// name column, dates as M/D/YYYY, no grade column. Invented people.
+const CC_HEADERS = ['[1]student_number', 'StudentEmail', '[1]lastfirst', '[5]TeacherNumber', '[5]LastFirst',
+  '[5]Email_Addr', '[2]Course_Name', 'Course_Number', 'TermID', 'Section_Number', 'DateLeft', 'SectionID',
+  'Expression', 'DateEnrolled'];
+
+function cc(o) {
+  return [o.sid, o.sid + '@school.example', 'Pupil, Invented ' + o.sid, '9' + o.sec, o.tname || 'Doe, Jane A.',
+    o.temail || 'jane.doe@school.example', o.name, o.course, o.term || '3600', o.num, o.left || '7/10/2027', o.sec,
+    o.expr || '2(A,C) 3(F)', o.from || '8/21/2026'];
+}
+
+const CC_ROWS = [
+  cc({ sid: '5001', sec: '9101', course: 'G09ENG', num: 'G09ENG1', name: 'English 9' }),
+  cc({ sid: '5001', sec: '9102', course: 'BAPSTA', num: 'BAPSTA', name: 'AP Statistics', tname: 'Roe, Sam', temail: 's.roe@school.example' }),
+  cc({ sid: '5001', sec: '9103', course: 'HHR', num: 'G09BHR1', name: 'HR / Moral Education' }),
+  cc({ sid: '5002', sec: '9104', course: '11ISE', num: '11ISE', name: 'Islamic Studies in English 11' }),
+  cc({ sid: '5002', sec: '9105', course: 'IB1ENGS', num: 'IB1ENGSL1', name: 'English A SL', term: '3601', left: '2/7/2027' }),
+  cc({ sid: '5003', sec: '9102', course: 'BAPSTA', num: 'BAPSTA', name: 'AP Statistics', tname: 'Roe, Sam', temail: 's.roe@school.example' }),
+  cc({ sid: '5004', sec: '9106', course: 'G03ART', num: 'G03ART1', name: 'Art 3' }),
+  cc({ sid: '5005', sec: '9107', course: 'G10MAT', num: 'G10MAT1', name: 'Math 10' }),
+  cc({ sid: '5005', sec: '9108', course: 'G10SCI', num: 'G10SCI1', name: 'Science 10', from: '9/9/2026' }),
+  cc({ sid: '5005', sec: '9109', course: 'G11MAT', num: 'G11MAT1', name: 'Math 11' })
+];
+
+test("PowerSchool's CC export loads as it comes: grades from course numbers, no student names", () => {
+  const out = g.PsImport.buildRoster({ headers: CC_HEADERS, rows: CC_ROWS }, settings());
+  const r = out.report;
+  assert.deepEqual(r.errors, []);
+  assert.equal(r.gradesFromCourses, true);
+  assert.equal(r.gradesMixed, 1, '5005 has Grade 10 and Grade 11 courses');
+  assert.equal(r.rowsNoGrade, 1, '5003 takes only AP Statistics, which carries no grade');
+  assert.equal(r.rowsOutsideGrades, 1);
+  assert.deepEqual(r.skippedCourses, { HHR: 1 });
+  assert.deepEqual(out.sections.map((s) => s.section_id), ['9101', '9102', '9104', '9105', '9107', '9108', '9109']);
+  const eng = out.sections[0];
+  assert.equal(eng.section_number, 'G09ENG1');
+  assert.equal(eng.teacher_emails, 'jane.doe@school.example');
+  assert.equal(eng.teacher_names, 'Jane A. Doe', "the teacher's name, turned round; not the student's");
+  assert.equal(eng.term, '3600');
+  assert.equal(eng.grades, '9');
+  assert.equal(out.sections[1].grades, '9', 'AP Statistics takes its grade from its students');
+  assert.equal(out.sections.find((s) => s.section_id === '9105').grades, '11', 'IB1 is not read as Grade 1');
+  assert.ok(out.enrolments.every((e) => e.grade === { 5001: '9', 5002: '11', 5005: '10' }[e.student_number]));
+  const en = out.enrolments.find((e) => e.section_id === '9101');
+  assert.equal(en.date_enrolled, '2026-08-21');
+  assert.equal(en.date_left, '2027-07-10');
+  assert.equal(en.student_email, '5001@school.example');
+  assert.doesNotMatch(JSON.stringify(out), /Pupil|Invented/, 'student names are never kept');
+});
+
+test('a CC export class shows its section code, meets on lettered days and ends with its term', () => {
+  const t = fresh();
+  t.backend.replace('Roster', CC_HEADERS, CC_ROWS);
+  const r = g.PsImport.process();
+  assert.deepEqual(r.errors, []);
+  assert.match(g.PsImport.describe(r), /grade comes from their course numbers/);
+  assert.equal(g.Dir.label(g.Dir.section('9101')), 'English 9 (G09ENG1)');
+  assert.deepEqual(g.Dir.section('9101').meetings, [{ day: 1, period: '2' }, { day: 3, period: '2' }, { day: 6, period: '3' }]);
+  const s1 = g.Dir.section('9105');
+  assert.equal(s1.termEnd, '2027-02-06', 'DateLeft 2/7/2027 is the first day out');
+  assert.equal(g.Dir.section('9108').termStart, '2026-09-09', 'nobody was in Science 10 before 9 September');
+  assert.equal(g.Dir.section('9101').termEnd, g.Config.get().yearEnd, 'DateLeft after the year end does not stretch it');
+  assert.equal(g.Dir.userFor('jane.doe@school.example').role, 'TEACHER');
+  const pupil = g.Dir.userFor('5002@school.example');
+  assert.equal(pupil.role, 'STUDENT');
+  assert.equal(pupil.grade, '11');
+});

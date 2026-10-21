@@ -28,7 +28,7 @@ open. Update it whenever a decision changes, so this context is not lost again.
 | 8 | Student visibility | An entry is staff-only until its teacher ticks "Announced to students". |
 | 9 | Grade calendars | Import the existing entries once (each creator claims theirs), then mirror every entry one-way to the matching grade calendar. Believed staff-only, so unannounced entries are mirrored too (`mirror_unannounced = TRUE`); **confirm with the SLT member who owns the grade calendars**. |
 | 10 | Internal Calendar | Read-only overlay from "AISA (Internal Calendar)", synced hourly. |
-| 11 | Roster source (21 Oct) | The school's class roster export: one sheet, one row per student per class per teacher. Class Name is the class ID, and Course Number is the subject code (friendly names optional, in the CourseNames tab). Homerooms (`HHR`) are skipped. Names and genders are not stored. It has no meeting times, so next-lesson suggestions stay off until `Expression`/`Term` are added. Its Student Email column arrived broken (`#NAME?`): fix it at the source, or use `student_email_pattern`. |
+| 11 | Roster source (21 Oct) | IT's PowerSchool **CC export** (tab-separated, one row per student per section), imported into the Roster tab as it comes. `SectionID` is the class ID, and `Section_Number` its code in the app (`12ASL1`). Until IT adds `[1]Grade_Level`, each student's grade comes from their course numbers (`G07ISA` → 7); in the 21 Oct export every student got exactly one grade this way. Expression letters A–J are taken as Days 1–10. The homerooms `HHR` and `MHR` (HR / Moral Education) are skipped. Student names in the export are ignored and never stored, and IT is asked to drop `[1]lastfirst`. The school's class roster export (Class Name …) still works, but has no meeting times. |
 | 12 | Who loads the roster (21 Oct) | Only the Sheet's admins (role ADMIN in the Staff tab), from the Sheet menu, never from the web app. One step: paste into the Roster tab, then "Load the class roster", which shows a summary and asks Yes/No. |
 
 ## How it works now (built)
@@ -57,8 +57,9 @@ open. Update it whenever a decision changes, so this context is not lost again.
 ## Open questions
 
 1. Are the 7 grade calendars staff-only? (Sets `mirror_unannounced`.)
-2. PowerSchool day codes in `expression`: numbers (1–10) or letters? (Settings
-   → `day_letter_map` if letters.)
+2. PowerSchool day codes are letters A–J, taken as Days 1–10 (the Internal
+   Calendar's "MS/ HS Day N"). Confirm the order; if it differs, set Settings →
+   `day_letter_map`.
 3. Semester exam dates and IB DP exam dates are still to be added to the
    Internal Calendar, and Spring Break and Eid al-Fitr are not there yet.
 4. Who owns the Sheet and the deployment long-term (a Shared Drive and a role
@@ -66,3 +67,6 @@ open. Update it whenever a decision changes, so this context is not lost again.
 5. Parents: policy 4.3 says the calendar is shared with families. Not in
    phase 1. A later option is a read-only family view or published grade
    calendars of announced entries.
+6. Is Moral Education (`HHR`/`MHR`, "HR / Moral Education") assessed with
+   summatives? If so, take those codes out of Settings → `roster_skip_courses`
+   so teachers can book for it.

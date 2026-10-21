@@ -6,6 +6,10 @@
  *      teacher, pasted or imported into the Roster tab. Columns are matched by
  *      name: Class Name, Course Number, Email Address or User Name (teacher),
  *      Instructor First/Last Name, Student ID, Student Grade, Student Email.
+ *      PowerSchool's CC export works as it comes ([1]student_number,
+ *      StudentEmail, [5]Email_Addr, [5]LastFirst, SectionID, Section_Number,
+ *      Expression, TermID, DateEnrolled, DateLeft). Without a grade column,
+ *      each student's grade is read from their course numbers.
  *   2. Two PowerSchool exports in the PS_Sections and PS_Enrolments tabs
  *      (docs/POWERSCHOOL_EXPORT.md).
  *
@@ -43,26 +47,32 @@ var PsImport = (function () {
     date_left: ['date_left', 'dateleft', 'cc.dateleft']
   };
 
-  /** Roster headers are matched on their letters only, so "St7udentEmail" still finds Student Email. */
+  /** Roster headers are matched by rosterKey(), so "St7udentEmail" still finds Student Email. */
   var ROSTER_FIELDS = {
     class_name: ['classname', 'class', 'sectionname', 'sectionid', 'section'],
+    section_number: ['sectionnumber', 'sectionno'],
     course_number: ['coursenumber', 'coursecode', 'course'],
     course_name: ['coursename', 'coursetitle'],
-    teacher_email: ['emailaddress', 'instructoremail', 'teacheremail', 'instructoremailaddress', 'email'],
+    teacher_email: ['emailaddress', 'instructoremail', 'teacheremail', 'teacheremailaddr', 'instructoremailaddress',
+      'email', 'emailaddr'],
     teacher_username: ['username', 'instructorusername'],
+    teacher_name: ['teachername', 'teacherlastfirst', 'instructorname'],
     teacher_first: ['instructorfirstname', 'teacherfirstname'],
     teacher_last: ['instructorlastname', 'teacherlastname'],
     student_number: ['studentid', 'studentnumber'],
     student_email: ['studentemail', 'studentemailaddress'],
     student_first: ['studentfirstname'],
     student_last: ['studentlastname'],
-    grade_level: ['studentgrade', 'gradelevel', 'grade'],
+    grade_level: ['studentgrade', 'gradelevel', 'grade', 'studentgradelevel'],
     expression: ['expression', 'periods', 'meetingpattern'],
-    term: ['term', 'termabbreviation'],
+    term: ['term', 'termabbreviation', 'termid'],
     department: ['department', 'subject'],
     date_enrolled: ['dateenrolled'],
     date_left: ['dateleft']
   };
+
+  /** PowerSchool export headers name a field's table: "[5]LastFirst" is a teacher's name, "[1]lastfirst" a student's. */
+  var PS_TABLES = { 1: 'student', 5: 'teacher' };
 
   var REQUIRED_SECTION = ['section_id', 'course_number', 'course_name', 'teacher_email'];
   var REQUIRED_ENROLMENT = ['student_number', 'student_email', 'grade_level', 'section_id'];
@@ -70,6 +80,14 @@ var PsImport = (function () {
   function key(h) { return String(h).toLowerCase().replace(/[^a-z0-9]/g, ''); }
 
   function letters(h) { return String(h).toLowerCase().replace(/[^a-z]/g, ''); }
+
+  /** A roster header's letters, with the table of a "[5]…" PowerSchool header in front ("teacherlastfirst"). */
+  function rosterKey(h) {
+    var m = String(h).match(/^\s*\[(\d+)\]\s*(.*)$/);
+    var k = letters(m ? m[2] : h);
+    var table = m ? PS_TABLES[m[1]] : '';
+    return table && k.indexOf(table) !== 0 ? table + k : k;
+  }
 
   /** field → column index, using the first alias each header matches. */
   function mapHeaders(headers, fields, keyFn) {
@@ -113,9 +131,54 @@ var PsImport = (function () {
 
   function bump(map, k) { map[k] = (map[k] || 0) + 1; }
 
+  /** Two-digit grades in a course number: 'G07ISA' → ['7'], '11ISE' → ['11']. 'IB1ENGS' and 'BAPBIO' have none. */
+  function gradesInCourse(course) {
+    var out = [];
+    var re = /(^|\D)(\d{2})(?!\d)/g;
+    var m;
+    while ((m = re.exec(course))) {
+      var n = +m[2];
+      if (n >= 1 && n <= 12) out.push(String(n));
+    }
+    return out;
+  }
+
   /* ------------------------------------------------------------------
      Source 1: the school roster (one sheet)
      ------------------------------------------------------------------ */
+
+  /**
+   * For a roster without a grade column: each student's grade is the one most
+   * of their course numbers carry. Returns { grades: student number → grade, mixed }.
+   */
+  function gradesFromCourses(rows, m) {
+    var votes = {};
+    rows.forEach(function (row) {
+      var num = U.clean(val(row, m.student_number));
+      if (!num) return;
+      gradesInCourse(U.clean(val(row, m.course_number)).toUpperCase()).forEach(function (g) {
+        var v = votes[num] = votes[num] || {};
+        v[g] = (v[g] || 0) + 1;
+      });
+    });
+    var grades = {};
+    var mixed = 0;
+    Object.keys(votes).forEach(function (num) {
+      var v = votes[num];
+      var keys = Object.keys(v);
+      if (keys.length > 1) mixed++;
+      grades[num] = keys.reduce(function (best, g) { return v[g] > v[best] ? g : best; }, keys[0]);
+    });
+    return { grades: grades, mixed: mixed };
+  }
+
+  /** 'First Last' from the first/last name columns, or from one name column with 'Last, First' turned round. */
+  function rosterTeacherName(row, m) {
+    var full = U.clean([val(row, m.teacher_first), val(row, m.teacher_last)].join(' '));
+    if (full) return full;
+    var parts = U.clean(val(row, m.teacher_name)).split(',');
+    return U.clean(parts.length === 2 ? parts[1] + ' ' + parts[0] : parts.join(','));
+  }
 
   /**
    * Pure core of the roster import, so it can be tested without a Sheet.
@@ -128,15 +191,22 @@ var PsImport = (function () {
       rowsSkippedCourses: 0, skippedCourses: {}, rowsMissingClass: 0, rowsMissingStudent: 0,
       duplicateRows: 0, sections: 0, students: 0, enrolments: 0, teachers: 0, coTaught: 0,
       classesWithoutTeacher: [], studentsWithoutEmail: 0, emailsFromPattern: 0, gradeConflicts: 0,
-      errors: []
+      gradesFromCourses: false, gradesMixed: 0, rowsNoGrade: 0, errors: []
     };
-    var m = mapHeaders(table.headers, ROSTER_FIELDS, letters);
+    var m = mapHeaders(table.headers, ROSTER_FIELDS, rosterKey);
     if (!table.rows.length) report.errors.push('The Roster tab is empty.');
     if (m.class_name < 0 && m.course_number < 0) report.errors.push('The roster needs a Class Name or Course Number column.');
     if (m.teacher_email < 0 && m.teacher_username < 0) report.errors.push('The roster needs a teacher Email Address or User Name column.');
     if (m.student_number < 0) report.errors.push('The roster needs a Student ID column.');
-    if (m.grade_level < 0) report.errors.push('The roster needs a Student Grade column.');
+    if (m.grade_level < 0 && m.course_number < 0) report.errors.push('The roster needs a Student Grade column.');
     if (report.errors.length) return { sections: [], enrolments: [], report: report };
+
+    var derived = null;
+    if (m.grade_level < 0) {
+      derived = gradesFromCourses(table.rows, m);
+      report.gradesFromCourses = true;
+      report.gradesMixed = derived.mixed;
+    }
 
     var sections = {};
     var order = [];
@@ -148,7 +218,13 @@ var PsImport = (function () {
     var teachers = {};
 
     table.rows.forEach(function (row) {
-      var grade = U.normGrade(val(row, m.grade_level));
+      var num = U.clean(val(row, m.student_number));
+      var grade = derived ? derived.grades[num] || '' : U.normGrade(val(row, m.grade_level));
+      if (derived && !grade) {
+        if (num) report.rowsNoGrade++;
+        else report.rowsMissingStudent++;
+        return;
+      }
       if (s.grades.indexOf(grade) < 0) {
         report.rowsOutsideGrades++;
         return;
@@ -164,7 +240,6 @@ var PsImport = (function () {
         bump(report.skippedCourses, course || cls);
         return;
       }
-      var num = U.clean(val(row, m.student_number));
       if (!num) {
         report.rowsMissingStudent++;
         return;
@@ -174,7 +249,8 @@ var PsImport = (function () {
       if (!sec) {
         sec = sections[cls] = {
           section_id: cls, course_number: course || cls,
-          course_name: U.clean(val(row, m.course_name)) || course || cls, section_number: '',
+          course_name: U.clean(val(row, m.course_name)) || course || cls,
+          section_number: U.clean(val(row, m.section_number)),
           teacher_emails: [], teacher_names: [], expression: U.clean(val(row, m.expression)),
           term: U.clean(val(row, m.term)), department: U.clean(val(row, m.department)),
           grades: {}, students: {}, status: ''
@@ -184,7 +260,7 @@ var PsImport = (function () {
       var temail = goodEmail(val(row, m.teacher_email)) || goodEmail(val(row, m.teacher_username));
       if (temail && sec.teacher_emails.indexOf(temail) < 0) {
         sec.teacher_emails.push(temail);
-        sec.teacher_names.push(U.clean([val(row, m.teacher_first), val(row, m.teacher_last)].join(' ')));
+        sec.teacher_names.push(rosterTeacherName(row, m));
         teachers[temail] = true;
       }
       sec.grades[grade] = true;
@@ -227,7 +303,8 @@ var PsImport = (function () {
       if (!sec.teacher_emails.length && report.classesWithoutTeacher.length < 10) report.classesWithoutTeacher.push(id);
       return {
         section_id: sec.section_id, course_number: sec.course_number, course_name: sec.course_name,
-        section_number: '', teacher_emails: sec.teacher_emails.join(';'), teacher_names: sec.teacher_names.join(';'),
+        section_number: sec.section_number, teacher_emails: sec.teacher_emails.join(';'),
+        teacher_names: sec.teacher_names.join(';'),
         expression: sec.expression, term: sec.term, department: sec.department,
         grades: U.sortGrades(Object.keys(sec.grades)).join(','), student_count: Object.keys(sec.students).length,
         status: ''
@@ -436,6 +513,14 @@ var PsImport = (function () {
         r.enrolments + ' enrolments from the ' + r.source + '.'
     ];
     if (r.teachers) lines.push(r.teachers + ' teachers are linked to their classes and can book for them.');
+    if (r.gradesFromCourses) {
+      lines.push('There is no grade column, so each student\'s grade comes from their course numbers (G07ISA means Grade 7).' +
+        (r.gradesMixed ? ' For ' + r.gradesMixed + ' students they point to more than one grade; the most common was used.' : ''));
+    }
+    if (r.rowsNoGrade) {
+      lines.push(r.rowsNoGrade + ' rows were for students whose course numbers carry no grade, so they were left out. ' +
+        'Add a grade column to bring them in.');
+    }
     if (r.rowsOutsideGrades) lines.push(r.rowsOutsideGrades + ' rows were for other grades and were skipped.');
     if (r.rowsSkippedCourses) {
       lines.push(r.rowsSkippedCourses + ' rows were left out by Settings → roster_skip_courses: ' +

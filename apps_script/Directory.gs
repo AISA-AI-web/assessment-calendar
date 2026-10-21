@@ -95,6 +95,11 @@ var Dir = (function () {
       if (!sec.grades.length) {
         sec.grades = U.sortGrades(U.uniq(list.map(function (en) { return students[en.s].grade; })));
       }
+      // A class runs only while it has students, so a semester class ends with its
+      // enrolments even when its term is a PowerSchool TermID such as 3601.
+      var span = enrolmentSpan(list);
+      if (span[0] > sec.termStart) sec.termStart = span[0];
+      if (span[1] && span[1] < sec.termEnd) sec.termEnd = span[1];
     });
 
     Object.keys(staff).forEach(function (e) { if (staff[e].name) names[e] = staff[e].name; });
@@ -104,6 +109,21 @@ var Dir = (function () {
       students: students, byEmail: byEmail, bySection: bySection, byGrade: byGrade
     };
     return idx;
+  }
+
+  /** [first day, last day] anyone is enrolled, each '' unless every enrolment gives that date. */
+  function enrolmentSpan(list) {
+    var from = '';
+    var to = '';
+    var allFrom = list.length > 0;
+    var allTo = list.length > 0;
+    list.forEach(function (en) {
+      if (!en.from) allFrom = false;
+      else if (!from || en.from < from) from = en.from;
+      if (!en.to) allTo = false;
+      else if (!to || en.to > to) to = en.to;
+    });
+    return [allFrom ? from : '', allTo ? U.addDays(to, -1) : ''];
   }
 
   /* ------------------------------------------------------------------
@@ -222,13 +242,16 @@ var Dir = (function () {
   }
 
   /**
-   * 'Visual Arts 9 (G09ART.1)' for PowerSchool sections; for roster classes the
-   * class code, e.g. 'IB1ENGSL1', or 'English A SL (IB1ENGSL1)' once the course
-   * has a friendly name in the CourseNames tab.
+   * 'Visual Arts 9 (G09ART.1)' for PowerSchool sections numbered 1, 2, …; where
+   * the section number is already a class code, as at AISA, or for roster
+   * classes, the code: 'Arabic Second Language 12 (12ASL1)', or just 'IB1ENGSL1'
+   * until the course has a friendly name in the CourseNames tab.
    */
   function label(sec) {
     if (!sec) return '';
-    var code = sec.sectionNumber ? sec.courseNumber + '.' + sec.sectionNumber : (/^\d+$/.test(sec.id) ? sec.courseNumber : sec.id);
+    var num = sec.sectionNumber;
+    var code = num ? (/^\d+$/.test(num) ? sec.courseNumber + '.' + num : num) :
+      (/^\d+$/.test(sec.id) ? sec.courseNumber : sec.id);
     if (!code || code === sec.courseName) return sec.courseName;
     if (sec.courseName === sec.courseNumber) return code;
     return sec.courseName + ' (' + code + ')';
