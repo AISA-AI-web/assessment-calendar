@@ -27,10 +27,10 @@ summatives per student per day**.
 ## Try it without Google
 
 ```sh
-npm run preview      # writes preview/dist/index.html
+npm run preview
 ```
 
-Open `preview/dist/index.html?as=teacher` (or `slt`, `admin`, `student`,
+That writes `preview/dist/index.html`. Open `preview/dist/index.html?as=teacher` (or `slt`, `admin`, `student`,
 `viewer`). It runs the real app against a fictional school, and its changes
 last for the browser tab, so you can book as a teacher, switch to SLT and
 approve.
