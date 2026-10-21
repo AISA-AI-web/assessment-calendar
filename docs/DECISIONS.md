@@ -38,7 +38,8 @@ open. Update it whenever a decision changes, so this context is not lost again.
   The scope can be all grades, one grade, one class (meaning everything that
   class's students have, in every subject) or, for students, my assessments.
 - **Load meter:** the busiest student's summative count against the limit, for
-  the chosen scope. Filters never change it.
+  the chosen scope. Filters never change it. On a day over the limit, staff
+  see the assessments that put students over it in red, listed first.
 - **Booking:** pick class(es), date and period. The check runs as you type and
   shows the clashing assessments and their teachers, how many students are
   affected (their emails only for the class's own teachers and SLT), and the
