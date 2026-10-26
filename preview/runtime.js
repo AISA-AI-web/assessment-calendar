@@ -33,6 +33,8 @@
   var backend = MemoryBackend.fromObjects(Store.SCHEMAS, fx.tables);
   var svc = FakeServices({ user: fx.people[who], today: fx.today });
   window.Svc = svc;
+  // The preview leaves Bridge.gs out and never moves: Api.run asks this before every call.
+  window.bridgeMovedTo_ = function () { return ''; };
   Store.setBackend(backend);
 
   var KEY = 'ac-preview2:' + fx.today + ':' + fx.tables.Assessments.length;

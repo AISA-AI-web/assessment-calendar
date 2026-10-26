@@ -12,7 +12,7 @@ const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
-const SERVER_FILES = ['Util', 'Config', 'Store', 'Svc', 'Days', 'Directory', 'Import', 'Rules', 'Entries', 'Mirror', 'Api', 'WebApp'];
+const SERVER_FILES = ['Util', 'Config', 'Store', 'Svc', 'Days', 'Directory', 'Import', 'Rules', 'Entries', 'Mirror', 'Api', 'WebApp', 'Bridge'];
 const SUPPORT_FILES = ['memory_backend', 'fake_services', 'fixtures'];
 
 let loaded = false;

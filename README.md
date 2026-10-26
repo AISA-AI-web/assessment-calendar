@@ -48,6 +48,9 @@ apps_script/   everything that runs in Google (pushed with clasp)
   Import.gs      class roster / PowerSchool import
   Mirror.gs      copies to the grade calendars; old-entry import
   Store.gs       the Sheet as tables      Svc.gs  other Google services
+  Bridge.gs      the Google side once the calendar has moved to its new server
+                 (source: AISA-AI-web/AI-Lessons, assessment-calendar/bridge/; does nothing
+                 until the switch)
   Index.html, Styles.html, App.html   the page
 support/       in-memory Sheet, fake Google services, fictional school
 tests/         npm test (node:test)

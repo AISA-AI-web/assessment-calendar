@@ -319,7 +319,7 @@ publish a **New version** (above).
 
 ## For developers
 
-- `npm test` runs 63 tests: the real server code against an in-memory Sheet.
+- `npm test` runs 78 tests: the real server code against an in-memory Sheet.
 - `npm run preview` builds `preview/dist/index.html`, the full app with no
   Google needed.
 - `npm run screenshots` drives the preview in Chromium and checks the main
