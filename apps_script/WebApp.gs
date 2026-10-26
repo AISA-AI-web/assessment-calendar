@@ -8,6 +8,7 @@
 
 function doGet(e) {
   try {
+    if (bridgeMovedTo_()) return bridgeMovedPage_(e);    // the calendar has moved (Bridge.gs)
     var params = (e && e.parameter) || {};
     var boot = Api.run(function (u) { return Api.bootstrap(u); });
     if (!boot.ok && boot.error.code === 'NO_ACCESS') return noAccessPage_(boot.error.message);
@@ -167,6 +168,7 @@ function requireAdminCaller_() {
  * person in, while the Staff tab has no ADMIN yet.
  */
 function requireAdmin_(allowFirstRun) {
+  if (bridgeMovedTo_()) throw U.err('MOVED', 'The calendar has moved to ' + bridgeMovedTo_() + ': use its Admin page instead of this menu.');
   var me = Svc.userEmail();
   if (me && Dir.userFor(me).role === 'ADMIN') return;
   if (allowFirstRun && !Store.all('Staff').some(function (r) { return U.clean(r.role).toUpperCase() === 'ADMIN'; })) return;
@@ -180,6 +182,7 @@ function requireAdmin_(allowFirstRun) {
 
 function cronHourly() {
   requireAdminCaller_();
+  if (bridgeMovedTo_()) return;                          // bridgeRun does this now
   try { Days.sync(); } catch (e) { console.error('Internal Calendar sync failed: ' + (e.stack || e)); }
   try { Mirror.retryFailed(); } catch (e) { console.error('Mirror retry failed: ' + (e.stack || e)); }
   try { Mirror.syncImports(); } catch (e) { console.error('Grade calendar import failed: ' + (e.stack || e)); }

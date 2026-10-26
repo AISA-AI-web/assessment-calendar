@@ -19,6 +19,9 @@ var Api = (function () {
 
   function run(fn) {
     var started = Date.now();
+    if (bridgeMovedTo_()) {
+      return { ok: false, error: { code: 'MOVED', message: 'The Assessment Calendar has moved: reload the page to open it.', details: null } };
+    }
     try {
       var user = currentUser();
       if (user.role === 'NONE') {
