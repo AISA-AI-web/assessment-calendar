@@ -125,7 +125,7 @@ test('each request carries the key; the server\'s refusals are shown as it gave 
   assert.throws(() => g.Bridge.call('bridgeStatus', {}), /no key yet: run bridgeSetup first/);
   env.props.BRIDGE_KEY = 'k'.repeat(64);
   g.bridgeCheck();
-  assert.equal(env.sent[0].url, 'https://kttgudordfvhdrkcancp.supabase.co/functions/v1/assessments');
+  assert.equal(env.sent[0].url, 'https://kttgudordfvhdrkcancp.supabase.co/functions/v1/assessments?forceFunctionRegion=eu-central-1');
   assert.deepEqual(env.sent[0].body, { action: 'bridgeStatus', key: 'k'.repeat(64) });
   assert.match(env.logs.pop(), /knows the bridge\. The new site: https:\/\/calendar\.school\.example\//);
 

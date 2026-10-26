@@ -28,7 +28,9 @@
 var Bridge = (function () {
   'use strict';
 
-  var DEFAULT_URL = 'https://kttgudordfvhdrkcancp.supabase.co/functions/v1/assessments';
+  // forceFunctionRegion: the server runs in Frankfurt, next to the database (Google's servers would otherwise get the
+  // region nearest them, in the US): quicker, and the Sheet's data stays in the EU.
+  var DEFAULT_URL = 'https://kttgudordfvhdrkcancp.supabase.co/functions/v1/assessments?forceFunctionRegion=eu-central-1';
   var TABS = ['Settings', 'Staff', 'Sections', 'CourseNames', 'Enrolments', 'Assessments', 'InternalEvents',
     'CalendarRules', 'Bells', 'ImportQueue', 'Log'];
   var PART = 2000;                   // rows per request when copying the Sheet
